@@ -64,10 +64,15 @@ export function addDays(iso: string, days: number): string {
   return toISO(d);
 }
 
+export function addWeeks(iso: string, weeks: number): string {
+  return addDays(iso, weeks * 7);
+}
+
 export function addMonths(iso: string, months: number): string {
   const d = new Date(iso + "T00:00:00");
   const day = d.getDate();
   d.setMonth(d.getMonth() + months);
+  // Clamp to last day of month when source day doesn't exist (e.g. Jan 31 → Feb 28)
   if (d.getDate() < day) d.setDate(0);
   return toISO(d);
 }
@@ -89,4 +94,75 @@ export function initials(name: string): string {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+/**
+ * Generate all EMI due dates for a loan schedule.
+ *
+ * - Daily:   EMI i → firstEmiDate + (i-1) days   (never duplicate)
+ * - Weekly:  EMI i → firstEmiDate + (i-1)*7 days  (never duplicate)
+ * - Monthly: EMI i → same calendar day, (i-1) months later
+ *            (auto-clamps to last day of short months, e.g. Jan 31 → Feb 28/29)
+ */
+export function generateEmiDates(
+  firstEmiDate: string,
+  frequency: "Daily" | "Weekly" | "Monthly",
+  tenure: number,
+): string[] {
+  const dates: string[] = [];
+  for (let i = 0; i < tenure; i++) {
+    if (frequency === "Monthly") {
+      dates.push(addMonths(firstEmiDate, i));
+    } else if (frequency === "Weekly") {
+      dates.push(addDays(firstEmiDate, i * 7));
+    } else {
+      // Daily
+      dates.push(addDays(firstEmiDate, i));
+    }
+  }
+  return dates;
+}
+
+// ── Date-range helpers for analytics / reports ─────────────────────────────
+
+export function startOfMonth(iso: string): string {
+  return iso.slice(0, 8) + "01";
+}
+
+export function endOfMonth(iso: string): string {
+  const d = new Date(iso.slice(0, 7) + "-01T00:00:00");
+  d.setMonth(d.getMonth() + 1);
+  d.setDate(0);
+  return toISO(d);
+}
+
+/** Monday of the ISO week containing `iso` (week starts Sunday). */
+export function startOfWeek(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() - d.getDay());
+  return toISO(d);
+}
+
+export function endOfWeek(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + (6 - d.getDay()));
+  return toISO(d);
+}
+
+/** First day of the previous calendar month relative to `iso`. */
+export function prevMonthStart(iso: string): string {
+  return startOfMonth(addMonths(iso, -1));
+}
+
+/** Last day of the previous calendar month relative to `iso`. */
+export function prevMonthEnd(iso: string): string {
+  return endOfMonth(addMonths(iso, -1));
+}
+
+export function prevWeekStart(iso: string): string {
+  return addDays(startOfWeek(iso), -7);
+}
+
+export function prevWeekEnd(iso: string): string {
+  return addDays(endOfWeek(iso), -7);
 }

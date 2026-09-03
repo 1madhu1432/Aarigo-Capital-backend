@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/emi")({
   component: EmiPage,
@@ -19,6 +20,7 @@ function EmiPage() {
   const navigate = useNavigate();
   const today = todayISO();
   const [query, setQuery] = useState("");
+  const [frequencyFilter, setFrequencyFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("due-today");
 
   const emiWithData = useMemo(() =>
@@ -32,15 +34,18 @@ function EmiPage() {
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
-    if (!q) return emiWithData;
-    return emiWithData.filter(({ e, cust }) =>
-      e.id.toLowerCase().includes(q) ||
-      e.loanId.toLowerCase().includes(q) ||
-      cust?.name.toLowerCase().includes(q) ||
-      cust?.id.toLowerCase().includes(q) ||
-      false
-    );
-  }, [emiWithData, query]);
+    return emiWithData.filter(({ e, cust, loan }) => {
+      if (frequencyFilter !== "all" && loan?.frequency !== frequencyFilter) return false;
+      if (!q) return true;
+      return (
+        e.id.toLowerCase().includes(q) ||
+        e.loanId.toLowerCase().includes(q) ||
+        cust?.name.toLowerCase().includes(q) ||
+        cust?.id.toLowerCase().includes(q) ||
+        false
+      );
+    });
+  }, [emiWithData, query, frequencyFilter]);
 
   const byTab = {
     "due-today": filtered.filter(({ e }) => e.dueDate === today && e.paid < e.amount),
@@ -124,20 +129,37 @@ function EmiPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search by EMI ID, loan, customer..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="pl-9 text-xs h-9"
-        />
-        {query && (
-          <button onClick={() => setQuery("")} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer">
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* Search & Frequency Filter */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="relative flex-1 max-w-sm w-full">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by EMI ID, loan, customer..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9 text-xs h-9"
+          />
+          {query && (
+            <button onClick={() => setQuery("")} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Frequency:</span>
+          <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+            <SelectTrigger className="h-9 text-xs w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
+              <SelectItem value="Daily" className="text-xs">Daily</SelectItem>
+              <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+              <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Tabs */}

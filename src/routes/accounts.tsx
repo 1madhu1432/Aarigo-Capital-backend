@@ -98,6 +98,57 @@ function AccountsPage() {
         <Badge variant="secondary" className="px-2.5 py-1 text-xs w-fit">{accounts.length} Accounts</Badge>
       </div>
 
+      {/* Account Analytics KPIs */}
+      {(() => {
+        const totalLimit = accounts.reduce((s, a) => s + a.creditLimit, 0);
+        const totalUsed = accountsWithData.reduce((s, d) => s + d.usedLimit, 0);
+        const totalAvailable = Math.max(0, totalLimit - totalUsed);
+        const totalOverdue = accountsWithData.reduce((s, d) => s + d.overdueAmount, 0);
+        const portfolioUtilPct = totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
+        const atRiskCount = accountsWithData.filter((d) => d.usedPct >= 90 || d.overdueAmount > 0).length;
+
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Sanctioned Limit</p>
+                <p className="text-base font-bold text-foreground mt-0.5 font-mono">{inr(totalLimit)}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">Across {accounts.length} active borrower accounts</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Credit Utilized</p>
+                <p className="text-base font-bold text-foreground mt-0.5 font-mono">{inr(totalUsed)}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <Progress value={portfolioUtilPct} className="h-1.5 flex-1" />
+                  <span className="text-[10px] font-semibold">{portfolioUtilPct}%</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Available Headroom</p>
+                <p className="text-base font-bold text-emerald-600 mt-0.5 font-mono">{inr(totalAvailable)}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">Available for new loan sanctions</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">At-Risk / Overdue</p>
+                <p className={`text-base font-bold mt-0.5 font-mono ${totalOverdue > 0 ? "text-destructive" : "text-emerald-600"}`}>
+                  {inr(totalOverdue)}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">{atRiskCount} account{atRiskCount === 1 ? "" : "s"} &gt;90% limit or overdue</p>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
+
       {/* Search */}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />

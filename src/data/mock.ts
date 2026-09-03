@@ -1,4 +1,4 @@
-import { addMonths, padId, todayISO, toISO, addDays } from "@/lib/format";
+import { addMonths, padId, todayISO, toISO, addDays, generateEmiDates } from "@/lib/format";
 import type {
   Account,
   AdminProfile,
@@ -233,6 +233,7 @@ export function buildLoans(customers: Customer[], accounts: Account[]): Loan[] {
         interestRate: rate,
         interestMethod: method,
         processingFee: round(principal * 0.01, 50),
+        insurance: round(principal * 0.005, 50),
         tenure,
         frequency: "Monthly",
         emiAmount,
@@ -243,6 +244,8 @@ export function buildLoans(customers: Customer[], accounts: Account[]): Loan[] {
         endDate: addMonths(firstEmiDate, tenure - 1),
         status: "Active",
         purpose: pick(PURPOSES),
+        disbursementMethod: "Cash",
+        bankTransactionId: "",
       });
     }
   });
@@ -264,9 +267,10 @@ export function buildLedger(loans: Loan[]) {
   loans.forEach((loan, li) => {
     // behaviour profile
     const profile = loan.status === "Closed" ? "closed" : li % 7 === 0 ? "overdue" : li % 5 === 0 ? "partial" : "good";
+    const emiDates = generateEmiDates(loan.firstEmiDate, loan.frequency, loan.tenure);
     for (let i = 1; i <= loan.tenure; i++) {
       emiN += 1;
-      const dueDate = addMonths(loan.firstEmiDate, i - 1);
+      const dueDate = emiDates[i - 1]!;
       const isPast = dueDate < TODAY;
       const isToday = dueDate === TODAY;
       const emi: Emi = {
@@ -320,6 +324,8 @@ export function buildLedger(loans: Loan[]) {
           date: paidOn,
           notes: emi.status === "Partial" ? "Part payment collected at doorstep" : "",
           collectedBy: "Admin User",
+          reversed: false,
+          reversalReason: "",
         });
         receipts.push({
           id: receiptId,

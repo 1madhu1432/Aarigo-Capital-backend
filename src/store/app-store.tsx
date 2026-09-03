@@ -2,30 +2,88 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { buildAll, buildNotifications, computeSchedule, defaultAdmin, defaultSettings } from "@/data/mock";
-import { addMonths, padId, safe, todayISO } from "@/lib/format";
+import { addMonths, generateEmiDates, padId, safe, todayISO } from "@/lib/format";
 import type {
   Account,
   AdminProfile,
   AppNotification,
   CreditLimitChange,
   Customer,
+  DisbursementMethod,
   DocumentFile,
   Emi,
   Loan,
   Payment,
   PaymentMethod,
+  PromiseToPay,
   Receipt,
   Settings,
   Visit,
 } from "@/types";
 
-const seed = buildAll();
+// ─── localStorage persistence ──────────────────────────────────────────────
+const STORAGE_KEY = "loanflow-hub-store-v1";
 
+interface PersistedState {
+  customers: Customer[];
+  accounts: Account[];
+  loans: Loan[];
+  emis: Emi[];
+  payments: Payment[];
+  receipts: Receipt[];
+  visits: Visit[];
+  limitHistory: CreditLimitChange[];
+  documents: DocumentFile[];
+  promiseToPay: PromiseToPay[];
+  counters: CounterState;
+  admin: AdminProfile;
+  settings: Settings;
+}
+
+function loadStoredState(): PersistedState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as PersistedState;
+    if (!Array.isArray(data?.customers)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Counter shape ─────────────────────────────────────────────────────────
+interface CounterState {
+  customer: number;
+  account: number;
+  loan: number;
+  emi: number;
+  payment: number;
+  receipt: number;
+  visit: number;
+  doc: number;
+  ptp: number;
+}
+
+const DEFAULT_COUNTERS: CounterState = {
+  customer: 200,
+  account: 200,
+  loan: 200,
+  emi: 5000,
+  payment: 2000,
+  receipt: 900,
+  visit: 900,
+  doc: 5000,
+  ptp: 0,
+};
+
+// ─── Input interfaces (exported for use in route files) ────────────────────
 export interface NewCustomerInput {
   name: string;
   guardianName: string;
@@ -49,11 +107,14 @@ export interface NewLoanInput {
   interestRate: number;
   interestMethod: Loan["interestMethod"];
   processingFee: number;
+  insurance: number;
   tenure: number;
   frequency: Loan["frequency"];
   startDate: string;
   firstEmiDate: string;
   purpose: string;
+  disbursementMethod: DisbursementMethod;
+  bankTransactionId: string;
 }
 
 export interface PaymentInput {
@@ -63,8 +124,15 @@ export interface PaymentInput {
   amount: number;
   method: PaymentMethod;
   notes: string;
+  /** How to handle any amount exceeding the target EMI remaining:
+   *  - "next"    → spill excess into subsequent unpaid EMIs
+   *  - "advance" → cap at target EMI remaining, treat excess as advance
+   *  - omitted   → treat same as "next" (safe default)
+   */
+  excessAction?: "next" | "advance";
 }
 
+// ─── Store interface ───────────────────────────────────────────────────────
 interface StoreValue {
   today: string;
   loggedIn: boolean;
@@ -80,6 +148,7 @@ interface StoreValue {
   visits: Visit[];
   limitHistory: CreditLimitChange[];
   documents: DocumentFile[];
+  promiseToPay: PromiseToPay[];
   notifications: AppNotification[];
   admin: AdminProfile;
   settings: Settings;
@@ -88,6 +157,7 @@ interface StoreValue {
   updateCustomer: (id: string, patch: Partial<Customer>) => void;
   addLoan: (input: NewLoanInput) => Loan;
   recordPayment: (input: PaymentInput) => { payment: Payment; receipt: Receipt };
+  reversePayment: (paymentId: string, reason: string) => void;
   updateCreditLimit: (accountId: string, newLimit: number, reason: string) => void;
   upsertVisit: (visit: Partial<Visit> & { id?: string; customerId: string; loanId: string }) => Visit;
   addDocument: (customerId: string, type: DocumentFile["type"], name: string) => void;
@@ -96,12 +166,20 @@ interface StoreValue {
   updateSettings: (patch: Partial<Settings>) => void;
   markNotificationsRead: () => void;
   closeLoan: (loanId: string) => void;
+  addPromiseToPay: (input: Omit<PromiseToPay, "id" | "createdAt" | "status">) => PromiseToPay;
+  updatePromiseToPay: (id: string, patch: Partial<PromiseToPay>) => void;
+  resetDemoData: () => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const today = todayISO();
+
+  // ── Load initial state (localStorage or fresh seed) ──────────────────────
+  const stored = loadStoredState();
+  const seed = stored ?? buildAll();
+
   const [loggedIn, setLoggedIn] = useState(true);
   const [customers, setCustomers] = useState<Customer[]>(seed.customers);
   const [accounts, setAccounts] = useState<Account[]>(seed.accounts);
@@ -112,20 +190,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [visits, setVisits] = useState<Visit[]>(seed.visits);
   const [limitHistory, setLimitHistory] = useState<CreditLimitChange[]>(seed.limitHistory);
   const [documents, setDocuments] = useState<DocumentFile[]>(seed.documents);
-  const [admin, setAdmin] = useState<AdminProfile>(defaultAdmin);
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [promiseToPay, setPromiseToPay] = useState<PromiseToPay[]>(
+    (stored as PersistedState & { promiseToPay?: PromiseToPay[] })?.promiseToPay ?? [],
+  );
+  const [admin, setAdmin] = useState<AdminProfile>(stored?.admin ?? defaultAdmin);
+  const [settings, setSettings] = useState<Settings>(stored?.settings ?? defaultSettings);
+  const [counters, setCounters] = useState<CounterState>(stored?.counters ?? DEFAULT_COUNTERS);
 
-  const [counters, setCounters] = useState({
-    customer: 200,
-    account: 200,
-    loan: 200,
-    emi: 5000,
-    payment: 2000,
-    receipt: 900,
-    visit: 900,
-    doc: 5000,
-  });
-
+  // ── Notifications (always computed, not persisted) ────────────────────────
   const initialNotifications = useMemo(() => {
     const overdueEmis = seed.emis.filter((e) => e.status === "Overdue").length;
     const dueToday = new Set(seed.emis.filter((e) => e.dueDate === today).map((e) => e.customerId)).size;
@@ -143,10 +215,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       partialCustomer,
       partialAmount: partial ? partial.amount - partial.paid : 0,
     });
-  }, [today]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [notifications, setNotifications] = useState<AppNotification[]>(initialNotifications);
 
-  const nextId = useCallback((key: keyof typeof counters) => {
+  // ── Persist to localStorage on every state change ─────────────────────────
+  useEffect(() => {
+    const data: PersistedState = {
+      customers,
+      accounts,
+      loans,
+      emis,
+      payments,
+      receipts,
+      visits,
+      limitHistory,
+      documents,
+      promiseToPay,
+      counters,
+      admin,
+      settings,
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [
+    customers, accounts, loans, emis, payments, receipts, visits,
+    limitHistory, documents, promiseToPay, counters, admin, settings,
+  ]);
+
+  // ── ID helpers ────────────────────────────────────────────────────────────
+  const nextId = useCallback((key: keyof CounterState) => {
     let value = 0;
     setCounters((c) => {
       value = c[key] + 1;
@@ -154,6 +254,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     });
     return value;
   }, []);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   const addCustomer = useCallback<StoreValue["addCustomer"]>(
     (input) => {
@@ -209,6 +311,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         tenure: input.tenure,
         frequency: input.frequency,
       });
+
+      // Correct end date for all frequencies
+      const emiDates = generateEmiDates(input.firstEmiDate, input.frequency, input.tenure);
+      const endDate = emiDates[emiDates.length - 1] ?? input.firstEmiDate;
+
       const loan: Loan = {
         id: padId("LN", n),
         customerId: input.customerId,
@@ -217,6 +324,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         interestRate: input.interestRate,
         interestMethod: input.interestMethod,
         processingFee: safe(input.processingFee),
+        insurance: safe(input.insurance),
         tenure: input.tenure,
         frequency: input.frequency,
         emiAmount,
@@ -224,26 +332,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         totalPayable,
         startDate: input.startDate,
         firstEmiDate: input.firstEmiDate,
-        endDate:
-          input.frequency === "Monthly"
-            ? addMonths(input.firstEmiDate, input.tenure - 1)
-            : input.firstEmiDate,
+        endDate,
         status: "Active",
         purpose: input.purpose,
+        disbursementMethod: input.disbursementMethod,
+        bankTransactionId: input.bankTransactionId,
       };
+
+      // Generate schedule using correct date logic for all frequencies
       const schedule: Emi[] = [];
       let e = counters.emi;
-      for (let i = 1; i <= input.tenure; i++) {
+      for (let i = 0; i < input.tenure; i++) {
         e += 1;
-        const dueDate =
-          input.frequency === "Monthly"
-            ? addMonths(input.firstEmiDate, i - 1)
-            : addMonths(input.firstEmiDate, 0);
+        const dueDate = emiDates[i]!;
         schedule.push({
           id: padId("EMI", e),
           loanId: loan.id,
           customerId: loan.customerId,
-          emiNo: i,
+          emiNo: i + 1,
           dueDate,
           amount: emiAmount,
           paid: 0,
@@ -260,13 +366,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const recordPayment = useCallback<StoreValue["recordPayment"]>(
     (input) => {
-      const p = counters.payment + 1;
-      const r = counters.receipt + 1;
-      setCounters((c) => ({ ...c, payment: p, receipt: r }));
-      const paymentId = padId("PAY", p);
-      const receiptId = `${settings.receiptPrefix}-${String(r).padStart(5, "0")}`;
+      const pNum = counters.payment + 1;
+      const rNum = counters.receipt + 1;
+
+      const paymentId = padId("PAY", pNum);
+      const receiptId = `${settings.receiptPrefix}-${String(rNum).padStart(5, "0")}`;
       const nowIso = new Date().toISOString();
       const amount = Math.max(0, safe(input.amount));
+
+      // Look up target EMI before state changes
+      const targetEmi = emis.find((e) => e.id === input.emiId);
+      const targetRemaining = targetEmi ? targetEmi.amount - targetEmi.paid : 0;
 
       const payment: Payment = {
         id: paymentId,
@@ -279,6 +389,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         date: nowIso,
         notes: input.notes,
         collectedBy: admin.name,
+        reversed: false,
+        reversalReason: "",
       };
       const receipt: Receipt = {
         id: receiptId,
@@ -291,8 +403,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         status: "Issued",
       };
 
-      // apply amount to the target EMI, overflow spills to the next unpaid EMIs
+      // ── Apply payment to EMIs ─────────────────────────────────────────────
       setEmis((prev) => {
+        const excessAction = input.excessAction ?? "next";
+
+        if (amount <= targetRemaining || excessAction === "advance") {
+          // Simple: apply only to target EMI (capped at remaining)
+          const apply = Math.min(amount, targetRemaining);
+          return prev.map((e) => {
+            if (e.id !== input.emiId) return e;
+            const paid = e.paid + apply;
+            const status: Emi["status"] =
+              paid >= e.amount ? "Paid" : paid > 0 ? "Partial" : e.dueDate < today ? "Overdue" : e.dueDate === today ? "Due" : "Upcoming";
+            return { ...e, paid, status };
+          });
+        }
+
+        // "next" — spill excess into subsequent unpaid EMIs
         let remaining = amount;
         const targetIdx = prev.findIndex((e) => e.id === input.emiId);
         const order = prev
@@ -315,20 +442,78 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       setPayments((prev) => [payment, ...prev]);
       setReceipts((prev) => [receipt, ...prev]);
-      setVisits((prev) =>
-        prev.map((v) =>
-          v.date === today && v.loanId === input.loanId
-            ? {
-                ...v,
-                collected: v.collected + amount,
-                status: v.collected + amount >= v.dueAmount ? "Paid" : "Partially Paid",
-              }
-            : v,
-        ),
-      );
+
+      // ── Auto-create or update visit for today ─────────────────────────────
+      setVisits((prev) => {
+        const existingIdx = prev.findIndex(
+          (v) => v.loanId === input.loanId && v.date === today,
+        );
+        if (existingIdx >= 0) {
+          return prev.map((v, i) => {
+            if (i !== existingIdx) return v;
+            const newCollected = v.collected + amount;
+            return {
+              ...v,
+              collected: newCollected,
+              status: newCollected >= v.dueAmount ? ("Paid" as const) : ("Partially Paid" as const),
+              paymentId,
+              receiptId,
+            };
+          });
+        }
+        // Create new visit
+        setCounters((c) => ({ ...c, visit: c.visit + 1 }));
+        const newVisit: Visit = {
+          id: padId("VIS", counters.visit + 1),
+          customerId: input.customerId,
+          loanId: input.loanId,
+          date: today,
+          dueAmount: targetRemaining,
+          collected: amount,
+          status: amount >= targetRemaining ? "Paid" : "Partially Paid",
+          notes: input.notes || "",
+          paymentId,
+          receiptId,
+        };
+        return [newVisit, ...prev];
+      });
+
+      setCounters((c) => ({ ...c, payment: pNum, receipt: rNum }));
       return { payment, receipt };
     },
-    [admin.name, counters.payment, counters.receipt, settings.receiptPrefix, today],
+    [admin.name, counters.payment, counters.receipt, counters.visit, settings.receiptPrefix, today, emis],
+  );
+
+  const reversePayment = useCallback<StoreValue["reversePayment"]>(
+    (paymentId, reason) => {
+      const payment = payments.find((p) => p.id === paymentId);
+      if (!payment || payment.reversed) return;
+
+      setPayments((prev) =>
+        prev.map((p) => (p.id === paymentId ? { ...p, reversed: true, reversalReason: reason } : p)),
+      );
+      setReceipts((prev) =>
+        prev.map((r) => (r.paymentId === paymentId ? { ...r, status: "Cancelled" } : r)),
+      );
+      setEmis((prev) =>
+        prev.map((e) => {
+          if (e.id !== payment.emiId) return e;
+          const newPaid = Math.max(0, e.paid - payment.amount);
+          const status: Emi["status"] =
+            newPaid >= e.amount
+              ? "Paid"
+              : newPaid > 0
+              ? "Partial"
+              : e.dueDate < today
+              ? "Overdue"
+              : e.dueDate === today
+              ? "Due"
+              : "Upcoming";
+          return { ...e, paid: newPaid, status };
+        }),
+      );
+    },
+    [payments, today],
   );
 
   const updateCreditLimit = useCallback<StoreValue["updateCreditLimit"]>(
@@ -394,7 +579,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           date: today,
           dueAmount: 0,
           collected: 0,
-          status: "Planned",
+          status: "Planned" as const,
         }
       );
     },
@@ -427,6 +612,48 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setLoans((prev) => prev.map((l) => (l.id === loanId ? { ...l, status: "Closed" } : l)));
   }, []);
 
+  const addPromiseToPay = useCallback<StoreValue["addPromiseToPay"]>(
+    (input) => {
+      const n = counters.ptp + 1;
+      setCounters((c) => ({ ...c, ptp: n }));
+      const ptp: PromiseToPay = {
+        id: padId("PTP", n),
+        ...input,
+        status: "Pending",
+        createdAt: today,
+      };
+      setPromiseToPay((prev) => [ptp, ...prev]);
+      return ptp;
+    },
+    [counters.ptp, today],
+  );
+
+  const updatePromiseToPay = useCallback<StoreValue["updatePromiseToPay"]>((id, patch) => {
+    setPromiseToPay((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  }, []);
+
+  const resetDemoData = useCallback(() => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    const fresh = buildAll();
+    setCustomers(fresh.customers);
+    setAccounts(fresh.accounts);
+    setLoans(fresh.loans);
+    setEmis(fresh.emis);
+    setPayments(fresh.payments);
+    setReceipts(fresh.receipts);
+    setVisits(fresh.visits);
+    setLimitHistory(fresh.limitHistory);
+    setDocuments(fresh.documents);
+    setPromiseToPay([]);
+    setCounters(DEFAULT_COUNTERS);
+    setAdmin(defaultAdmin);
+    setSettings(defaultSettings);
+  }, []);
+
   const value: StoreValue = {
     today,
     loggedIn,
@@ -445,6 +672,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     visits,
     limitHistory,
     documents,
+    promiseToPay,
     notifications,
     admin,
     settings,
@@ -452,6 +680,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     updateCustomer,
     addLoan,
     recordPayment,
+    reversePayment,
     updateCreditLimit,
     upsertVisit,
     addDocument,
@@ -460,14 +689,47 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     updateSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
     markNotificationsRead: () => setNotifications((n) => n.map((x) => ({ ...x, read: true }))),
     closeLoan,
+    addPromiseToPay,
+    updatePromiseToPay,
+    resetDemoData,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
-
+// eslint-disable-next-line react-refresh/only-export-components
 export function useStore() {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error("useStore must be used inside AppStoreProvider");
   return ctx;
+}
+
+/** Helper: compute the "current" EMI for a loan in collection priority order:
+ *  Partial > Overdue > Due today > Next Upcoming
+ */
+export function resolveCurrentEmi(loanEmis: import("@/types").Emi[], today: string) {
+  const unpaid = loanEmis.filter((e) => e.paid < e.amount).sort((a, b) => a.emiNo - b.emiNo);
+  return (
+    unpaid.find((e) => e.status === "Partial") ??
+    unpaid.find((e) => e.status === "Overdue") ??
+    unpaid.find((e) => e.dueDate === today) ??
+    unpaid[0] ??
+    null
+  );
+}
+
+/** Compute a collection priority score for sorting today's route. */
+export function collectionPriorityScore(emi: import("@/types").Emi, today: string): number {
+  let score = 0;
+  if (emi.status === "Partial") score += 75;
+  if (emi.status === "Overdue") {
+    score += 100;
+    const days = Math.max(
+      0,
+      Math.round((new Date(today + "T00:00:00").getTime() - new Date(emi.dueDate + "T00:00:00").getTime()) / 86_400_000),
+    );
+    score += days * 3;
+  }
+  if (emi.dueDate === today) score += 50;
+  return score;
 }

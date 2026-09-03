@@ -5,6 +5,8 @@ export type PaymentMethod = "Cash" | "UPI" | "Bank";
 export type VisitStatus = "Planned" | "Visited" | "Paid" | "Partially Paid" | "Not Paid";
 export type InterestMethod = "Flat" | "Reducing Balance";
 export type EmiFrequency = "Daily" | "Weekly" | "Monthly";
+export type PtpStatus = "Pending" | "Kept" | "Broken";
+export type DisbursementMethod = "Cash" | "Bank Transfer";
 
 export interface Address {
   house: string;
@@ -63,6 +65,7 @@ export interface Loan {
   interestRate: number;
   interestMethod: InterestMethod;
   processingFee: number;
+  insurance: number;
   tenure: number;
   frequency: EmiFrequency;
   emiAmount: number;
@@ -73,6 +76,8 @@ export interface Loan {
   endDate: string;
   status: LoanStatus;
   purpose: string;
+  disbursementMethod: DisbursementMethod;
+  bankTransactionId: string;
 }
 
 export interface Emi {
@@ -97,6 +102,9 @@ export interface Payment {
   date: string; // ISO datetime
   notes: string;
   collectedBy: string;
+  /** Set to true when the payment has been reversed/corrected. */
+  reversed: boolean;
+  reversalReason: string;
 }
 
 export interface Receipt {
@@ -121,6 +129,22 @@ export interface Visit {
   reason?: string | undefined;
   nextVisit?: string | undefined;
   notes?: string | undefined;
+  /** Linked payment ID when auto-created after collection. */
+  paymentId?: string | undefined;
+  receiptId?: string | undefined;
+}
+
+export interface PromiseToPay {
+  id: string; // PTP-000001
+  customerId: string;
+  loanId: string;
+  emiId: string;
+  promiseDate: string;
+  promiseAmount: number;
+  notes: string;
+  status: PtpStatus;
+  createdAt: string;
+  visitId?: string | undefined;
 }
 
 export interface DocumentFile {

@@ -53,11 +53,14 @@ function NewLoanPage() {
     interestRate: 12,
     interestMethod: "Flat",
     processingFee: 0,
+    insurance: 0,
     tenure: 12,
     frequency: "Monthly",
     startDate: today,
     firstEmiDate: addMonths(today, 1),
     purpose: "",
+    disbursementMethod: "Cash",
+    bankTransactionId: "",
   });
 
   interface LoanFormErrors {
@@ -341,6 +344,43 @@ function NewLoanPage() {
                 />
               </div>
               <div>
+                <Label className="text-xs">Loan Insurance (₹)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={form.insurance || ""}
+                  onChange={(e) => setField("insurance", parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="mt-1 h-9 text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Disbursement Method</Label>
+                <Select
+                  value={form.disbursementMethod}
+                  onValueChange={(v) => setField("disbursementMethod", v as "Cash" | "Bank Transfer")}
+                >
+                  <SelectTrigger className="mt-1 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Cash" className="text-xs">Cash</SelectItem>
+                    <SelectItem value="Bank Transfer" className="text-xs">Bank Transfer (NEFT/IMPS)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.disbursementMethod === "Bank Transfer" && (
+                <div>
+                  <Label className="text-xs">Bank Transaction ID / Ref</Label>
+                  <Input
+                    value={form.bankTransactionId}
+                    onChange={(e) => setField("bankTransactionId", e.target.value)}
+                    placeholder="e.g. UTR123456789"
+                    className="mt-1 h-9 text-xs font-mono"
+                  />
+                </div>
+              )}
+              <div>
                 <Label className="text-xs">Start Date</Label>
                 <Input
                   type="date"
@@ -374,9 +414,14 @@ function NewLoanPage() {
               <div className="p-3.5 rounded-lg bg-muted/40 border border-border text-xs space-y-1.5">
                 <p className="font-semibold text-foreground text-[11px] mb-2">Live Calculation</p>
                 {[
-                  { label: "Principal", value: inr(form.principal) },
+                  { label: "Principal (Sanctioned)", value: inr(form.principal) },
+                  { label: "Processing Fee Deducted", value: `- ${inr(form.processingFee)}` },
+                  { label: "Insurance Deducted", value: `- ${inr(form.insurance)}` },
+                  {
+                    label: "Net Disbursed Amount",
+                    value: inr(Math.max(0, form.principal - safe(form.processingFee) - safe(form.insurance))),
+                  },
                   { label: "Total Interest", value: inr(calc.totalInterest) },
-                  { label: "Processing Fee", value: inr(form.processingFee) },
                   { label: "Total Payable", value: inr(calc.totalPayable + safe(form.processingFee)) },
                   { label: "Estimated EMI", value: inr(calc.emiAmount) },
                 ].map(({ label, value }) => (
@@ -422,13 +467,17 @@ function NewLoanPage() {
               </div>
             </div>
             <div className="rounded-lg border border-border p-3.5 space-y-2">
-              <p className="font-semibold text-foreground mb-2">Loan Terms</p>
+              <p className="font-semibold text-foreground mb-2">Loan Terms & Disbursement</p>
               {[
-                { label: "Principal", value: inr(form.principal) },
+                { label: "Principal (Sanctioned)", value: inr(form.principal) },
+                { label: "Net Disbursed to Borrower", value: inr(Math.max(0, form.principal - safe(form.processingFee) - safe(form.insurance))) },
+                { label: "Disbursement Method", value: form.disbursementMethod },
+                ...(form.bankTransactionId ? [{ label: "Bank Tx / Ref", value: form.bankTransactionId }] : []),
                 { label: "Interest Rate", value: `${form.interestRate}% p.a. (${form.interestMethod})` },
                 { label: "Tenure", value: `${form.tenure} ${form.frequency === "Monthly" ? "months" : form.frequency === "Weekly" ? "weeks" : "days"}` },
                 { label: "EMI Frequency", value: form.frequency },
                 { label: "Processing Fee", value: inr(form.processingFee) },
+                { label: "Loan Insurance", value: inr(form.insurance) },
                 { label: "Total Interest", value: inr(calc.totalInterest) },
                 { label: "Total Payable", value: inr(calc.totalPayable + safe(form.processingFee)) },
                 { label: "Estimated EMI", value: inr(calc.emiAmount) },
@@ -463,10 +512,12 @@ function NewLoanPage() {
           <CardContent className="p-4 space-y-4 text-xs">
             <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-[11px] space-y-1">
               <p className="font-semibold">Please confirm before proceeding:</p>
-              <p>• Loan of <strong>{inr(form.principal)}</strong> will be disbursed to <strong>{selectedCustomer?.name}</strong></p>
-              <p>• EMI of <strong>{inr(calc.emiAmount)}</strong> will be due <strong>{form.frequency.toLowerCase()}</strong> from <strong>{fmtDate(form.firstEmiDate)}</strong></p>
+              <p>• Sanctioned Loan: <strong>{inr(form.principal)}</strong></p>
+              <p>• Net Disbursed: <strong>{inr(Math.max(0, form.principal - safe(form.processingFee) - safe(form.insurance)))}</strong> via <strong>{form.disbursementMethod}</strong>{form.bankTransactionId ? ` (Ref: ${form.bankTransactionId})` : ""}</p>
+              <p>• Borrower: <strong>{selectedCustomer?.name}</strong></p>
+              <p>• EMI of <strong>{inr(calc.emiAmount)}</strong> due <strong>{form.frequency.toLowerCase()}</strong> starting <strong>{fmtDate(form.firstEmiDate)}</strong></p>
               <p>• {form.tenure} EMIs totaling <strong>{inr(calc.totalPayable + safe(form.processingFee))}</strong></p>
-              <p>• This action creates the loan and EMI schedule immediately.</p>
+              <p>• This creates the loan contract and generates the EMI schedule immediately.</p>
             </div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" className="text-xs cursor-pointer" onClick={() => setStep(3)}>Back</Button>

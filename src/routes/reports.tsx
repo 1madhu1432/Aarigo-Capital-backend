@@ -15,9 +15,27 @@ import {
   CreditCard,
   ArrowDownRight,
   CheckCircle2,
+  Printer,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
-import { inr, inrShort, pct, fmtDate, fmtDateTime } from "@/lib/format";
+import {
+  inr,
+  inrShort,
+  pct,
+  fmtDate,
+  fmtDateTime,
+  safe,
+  todayISO,
+  addDays,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  prevWeekStart,
+  prevWeekEnd,
+  prevMonthStart,
+  prevMonthEnd,
+} from "@/lib/format";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 export const Route = createFileRoute("/reports")({
   component: ReportsPage,
@@ -48,385 +67,683 @@ function downloadCsv(filename: string, headers: string[], rows: (string | number
   toast.success(`Exported ${filename}`);
 }
 
+type DatePreset =
+  | "all"
+  | "today"
+  | "yesterday"
+  | "this_week"
+  | "last_week"
+  | "this_month"
+  | "last_month"
+  | "custom";
+
 function ReportsPage() {
-  const { loans, emis, payments, customers, receipts, today } = useStore();
-  const [activeTab, setActiveTab] = useState("portfolio");
+  const { loans, emis, payments, customers, today, settings } = useStore();
+  const [activeTab, setActiveTab] = useState("collections");
   const [searchQuery, setSearchQuery] = useState("");
+  const [datePreset, setDatePreset] = useState<DatePreset>("this_month");
+  const [customFrom, setCustomFrom] = useState(today.slice(0, 8) + "01");
+  const [customTo, setCustomTo] = useState(today);
+  const [frequencyFilter, setFrequencyFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-  // Portfolio Totals
-  const totalDisbursed = useMemo(() => loans.reduce((s, l) => s + l.principal, 0), [loans]);
-  const totalPayable = useMemo(() => loans.reduce((s, l) => s + l.totalPayable, 0), [loans]);
-  const totalCollected = useMemo(() => payments.reduce((s, p) => s + p.amount, 0), [payments]);
-  const totalOutstanding = Math.max(0, totalPayable - totalCollected);
+  // ── Calculate Active Date Range Bounds ────────────────────────────────────
+  const { fromDate, toDate } = useMemo(() => {
+    switch (datePreset) {
+      case "today":
+        return { fromDate: today, toDate: today };
+      case "yesterday": {
+        const y = addDays(today, -1);
+        return { fromDate: y, toDate: y };
+      }
+      case "this_week":
+        return { fromDate: startOfWeek(today), toDate: endOfWeek(today) };
+      case "last_week":
+        return { fromDate: prevWeekStart(today), toDate: prevWeekEnd(today) };
+      case "this_month":
+        return { fromDate: startOfMonth(today), toDate: endOfMonth(today) };
+      case "last_month":
+        return { fromDate: prevMonthStart(today), toDate: prevMonthEnd(today) };
+      case "custom":
+        return { fromDate: customFrom, toDate: customTo };
+      case "all":
+      default:
+        return { fromDate: "2000-01-01", toDate: "2099-12-31" };
+    }
+  }, [datePreset, today, customFrom, customTo]);
 
+  // ── Filtered Collections ──────────────────────────────────────────────────
+  const filteredPayments = useMemo(() => {
+    return payments.filter((p) => {
+      const pDate = p.date.slice(0, 10);
+      if (pDate < fromDate || pDate > toDate) return false;
+      if (methodFilter !== "all" && p.method !== methodFilter) return false;
+
+      const c = customers.find((cust) => cust.id === p.customerId);
+      const l = loans.find((loan) => loan.id === p.loanId);
+
+      if (frequencyFilter !== "all" && l?.frequency !== frequencyFilter) return false;
+
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchCust = c?.name.toLowerCase().includes(q) || c?.id.toLowerCase().includes(q);
+        const matchPay = p.id.toLowerCase().includes(q) || p.receiptId.toLowerCase().includes(q);
+        if (!matchCust && !matchPay) return false;
+      }
+      return true;
+    });
+  }, [payments, fromDate, toDate, methodFilter, frequencyFilter, searchQuery, customers, loans]);
+
+  const totalFilteredCollected = useMemo(
+    () => filteredPayments.filter((p) => !p.reversed).reduce((s, p) => s + p.amount, 0),
+    [filteredPayments],
+  );
+
+  // ── Filtered Disbursements ────────────────────────────────────────────────
+  const filteredLoans = useMemo(() => {
+    return loans.filter((l) => {
+      if (l.startDate < fromDate || l.startDate > toDate) return false;
+      if (frequencyFilter !== "all" && l.frequency !== frequencyFilter) return false;
+      if (statusFilter !== "all" && l.status !== statusFilter) return false;
+
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const c = customers.find((cust) => cust.id === l.customerId);
+        const matchCust = c?.name.toLowerCase().includes(q) || c?.id.toLowerCase().includes(q);
+        const matchLoan = l.id.toLowerCase().includes(q);
+        if (!matchCust && !matchLoan) return false;
+      }
+      return true;
+    });
+  }, [loans, fromDate, toDate, frequencyFilter, statusFilter, searchQuery, customers]);
+
+  const totalSanctioned = useMemo(() => filteredLoans.reduce((s, l) => s + l.principal, 0), [filteredLoans]);
+  const totalFees = useMemo(() => filteredLoans.reduce((s, l) => s + safe(l.processingFee), 0), [filteredLoans]);
+  const totalInsurance = useMemo(() => filteredLoans.reduce((s, l) => s + safe(l.insurance), 0), [filteredLoans]);
+  const totalNetDisbursed = useMemo(
+    () => filteredLoans.reduce((s, l) => s + Math.max(0, l.principal - safe(l.processingFee) - safe(l.insurance)), 0),
+    [filteredLoans],
+  );
+
+  // ── Filtered EMIs ─────────────────────────────────────────────────────────
+  const filteredEmis = useMemo(() => {
+    return emis.filter((e) => {
+      if (e.dueDate < fromDate || e.dueDate > toDate) return false;
+      if (statusFilter !== "all" && e.status !== statusFilter) return false;
+
+      const l = loans.find((loan) => loan.id === e.loanId);
+      if (frequencyFilter !== "all" && l?.frequency !== frequencyFilter) return false;
+
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const c = customers.find((cust) => cust.id === e.customerId);
+        const matchCust = c?.name.toLowerCase().includes(q) || c?.id.toLowerCase().includes(q);
+        const matchEmi = e.id.toLowerCase().includes(q) || e.loanId.toLowerCase().includes(q);
+        if (!matchCust && !matchEmi) return false;
+      }
+      return true;
+    });
+  }, [emis, fromDate, toDate, statusFilter, frequencyFilter, searchQuery, loans, customers]);
+
+  const totalEmiDueAmount = useMemo(() => filteredEmis.reduce((s, e) => s + e.amount, 0), [filteredEmis]);
+  const totalEmiPaidAmount = useMemo(() => filteredEmis.reduce((s, e) => s + e.paid, 0), [filteredEmis]);
+  const totalEmiRemaining = useMemo(() => filteredEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0), [filteredEmis]);
+
+  // ── Delinquent Customer Ranking ───────────────────────────────────────────
   const overdueEmis = useMemo(() => emis.filter((e) => e.status === "Overdue"), [emis]);
-  const overdueAmount = useMemo(() => overdueEmis.reduce((s, e) => s + (e.amount - e.paid), 0), [overdueEmis]);
-
-  const recoveryRate = totalPayable > 0 ? Math.round((totalCollected / totalPayable) * 100) : 0;
-  const npaRate = totalOutstanding > 0 ? Math.round((overdueAmount / totalOutstanding) * 100) : 0;
-
-  // Breakdown by payment method
-  const cashTotal = useMemo(() => payments.filter((p) => p.method === "Cash").reduce((s, p) => s + p.amount, 0), [payments]);
-  const upiTotal = useMemo(() => payments.filter((p) => p.method === "UPI").reduce((s, p) => s + p.amount, 0), [payments]);
-  const bankTotal = useMemo(() => payments.filter((p) => p.method === "Bank").reduce((s, p) => s + p.amount, 0), [payments]);
-
-  // Delinquent customer list
   const delinquentCustomers = useMemo(() => {
-    const map = new Map<string, { customer: (typeof customers)[0]; overdueCount: number; overdueTotal: number; lastDueDate: string }>();
+    const map = new Map<
+      string,
+      {
+        customer: (typeof customers)[0];
+        overdueCount: number;
+        overdueTotal: number;
+        oldestDueDate: string;
+        loanIds: Set<string>;
+      }
+    >();
+
     overdueEmis.forEach((e) => {
       const c = customers.find((cust) => cust.id === e.customerId);
       if (!c) return;
-      const existing = map.get(c.id) ?? { customer: c, overdueCount: 0, overdueTotal: 0, lastDueDate: e.dueDate };
+      const existing = map.get(c.id) ?? {
+        customer: c,
+        overdueCount: 0,
+        overdueTotal: 0,
+        oldestDueDate: e.dueDate,
+        loanIds: new Set(),
+      };
       existing.overdueCount += 1;
-      existing.overdueTotal += (e.amount - e.paid);
-      if (e.dueDate < existing.lastDueDate) existing.lastDueDate = e.dueDate;
+      existing.overdueTotal += e.amount - e.paid;
+      existing.loanIds.add(e.loanId);
+      if (e.dueDate < existing.oldestDueDate) existing.oldestDueDate = e.dueDate;
       map.set(c.id, existing);
     });
+
     return Array.from(map.values()).sort((a, b) => b.overdueTotal - a.overdueTotal);
   }, [overdueEmis, customers]);
 
-  // Filtered collections
-  const filteredPayments = useMemo(() => {
-    return payments.filter((p) => {
-      const c = customers.find((cust) => cust.id === p.customerId);
-      const matchesSearch = !searchQuery ||
-        c?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.receiptId.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesMethod = methodFilter === "all" || p.method === methodFilter;
-      return matchesSearch && matchesMethod;
-    });
-  }, [payments, customers, searchQuery, methodFilter]);
+  const totalDelinquentAmount = useMemo(
+    () => delinquentCustomers.reduce((s, d) => s + d.overdueTotal, 0),
+    [delinquentCustomers],
+  );
 
-  // CSV Exporters
-  const exportPortfolioCsv = () => {
-    const headers = ["Loan ID", "Customer ID", "Customer Name", "Principal", "Total Payable", "Tenure Months", "Status", "Start Date"];
-    const rows = loans.map((l) => {
-      const c = customers.find((cust) => cust.id === l.customerId);
-      return [l.id, l.customerId, c?.name ?? "Unknown", l.principal, l.totalPayable, l.tenure, l.status, l.startDate];
-    });
-    downloadCsv(`loanflow_portfolio_${today}.csv`, headers, rows);
-  };
-
+  // ── CSV Exporters ─────────────────────────────────────────────────────────
   const exportCollectionsCsv = () => {
-    const headers = ["Payment ID", "Receipt ID", "Date", "Customer Name", "Loan ID", "Amount", "Method", "Collected By"];
+    const headers = ["Payment ID", "Receipt ID", "Date", "Customer ID", "Customer Name", "Loan ID", "Amount", "Method", "Collector", "Reversed"];
     const rows = filteredPayments.map((p) => {
       const c = customers.find((cust) => cust.id === p.customerId);
-      return [p.id, p.receiptId, p.date, c?.name ?? "Unknown", p.loanId, p.amount, p.method, p.collectedBy];
+      return [p.id, p.receiptId, p.date, p.customerId, c?.name ?? "—", p.loanId, p.amount, p.method, p.collectedBy, p.reversed ? "Yes" : "No"];
     });
-    downloadCsv(`loanflow_collections_${today}.csv`, headers, rows);
+    downloadCsv(`collections_${fromDate}_to_${toDate}.csv`, headers, rows);
+  };
+
+  const exportDisbursementsCsv = () => {
+    const headers = ["Loan ID", "Customer ID", "Customer Name", "Start Date", "Sanctioned Principal", "Processing Fee", "Insurance", "Net Disbursed", "Frequency", "Tenure", "Disbursement Method", "Bank Tx Ref"];
+    const rows = filteredLoans.map((l) => {
+      const c = customers.find((cust) => cust.id === l.customerId);
+      return [
+        l.id,
+        l.customerId,
+        c?.name ?? "—",
+        l.startDate,
+        l.principal,
+        l.processingFee,
+        l.insurance,
+        Math.max(0, l.principal - safe(l.processingFee) - safe(l.insurance)),
+        l.frequency,
+        l.tenure,
+        l.disbursementMethod || "Cash",
+        l.bankTransactionId || "",
+      ];
+    });
+    downloadCsv(`disbursements_${fromDate}_to_${toDate}.csv`, headers, rows);
   };
 
   const exportDelinquencyCsv = () => {
-    const headers = ["Customer ID", "Customer Name", "Mobile", "City", "Overdue EMIs", "Total Overdue Amount", "Oldest Due Date"];
+    const headers = ["Customer ID", "Customer Name", "Mobile", "Area", "City", "Overdue EMIs", "Total Overdue Amount", "Oldest Due Date"];
     const rows = delinquentCustomers.map((d) => [
       d.customer.id,
       d.customer.name,
       d.customer.mobile,
+      d.customer.address.area,
       d.customer.address.city,
       d.overdueCount,
       d.overdueTotal,
-      d.lastDueDate,
+      d.oldestDueDate,
     ]);
-    downloadCsv(`loanflow_delinquency_npa_${today}.csv`, headers, rows);
+    downloadCsv(`delinquency_npa_${today}.csv`, headers, rows);
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
-            Portfolio Reports & Analytics
+            Financial & Operational Reports
           </h1>
           <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-            Audit-grade lending metrics, collection channel breakdowns, and delinquency exposure
+            Audit registers, collections, disbursements, NPA delinquency tracking and CSV export
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {activeTab === "portfolio" && (
-            <Button size="sm" variant="outline" onClick={exportPortfolioCsv} className="text-xs h-9 cursor-pointer">
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Export Portfolio CSV
-            </Button>
-          )}
-          {activeTab === "collections" && (
-            <Button size="sm" variant="outline" onClick={exportCollectionsCsv} className="text-xs h-9 cursor-pointer">
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Export Collections CSV
-            </Button>
-          )}
-          {activeTab === "delinquency" && (
-            <Button size="sm" variant="outline" onClick={exportDelinquencyCsv} className="text-xs h-9 cursor-pointer">
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Export NPA Risk CSV
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-9 cursor-pointer"
+            onClick={() => window.print()}
+          >
+            <Printer className="h-3.5 w-3.5 mr-1.5" />
+            Print Report
+          </Button>
         </div>
       </div>
 
-      {/* 4 Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="shadow-xs border-border">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Total Disbursed</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-xl md:text-2xl font-bold font-mono text-foreground">{inr(totalDisbursed)}</div>
-            <p className="text-[11px] text-muted-foreground mt-1">Across {loans.length} loans</p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-xs border-border">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Total Recovered</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-xl md:text-2xl font-bold font-mono text-emerald-600">{inr(totalCollected)}</div>
-            <p className="text-[11px] text-muted-foreground mt-1">{recoveryRate}% recovery rate</p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-xs border-border">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Outstanding Balance</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-xl md:text-2xl font-bold font-mono text-foreground">{inr(totalOutstanding)}</div>
-            <p className="text-[11px] text-muted-foreground mt-1">Principal + interest due</p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-xs border-border">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Overdue Risk (NPA)</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-xl md:text-2xl font-bold font-mono text-destructive">{inr(overdueAmount)}</div>
-            <p className="text-[11px] text-muted-foreground mt-1">{npaRate}% of outstanding</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tabs Layout */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="bg-muted p-1">
-          <TabsTrigger value="portfolio" className="text-xs cursor-pointer">Portfolio Overview</TabsTrigger>
-          <TabsTrigger value="collections" className="text-xs cursor-pointer">Collections Ledger</TabsTrigger>
-          <TabsTrigger value="delinquency" className="text-xs cursor-pointer">
-            Delinquency & NPA ({delinquentCustomers.length})
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Tab 1: Portfolio Breakdown */}
-        <TabsContent value="portfolio" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Payment Channels */}
-            <Card className="shadow-xs border-border">
-              <CardHeader className="p-4 md:p-5">
-                <CardTitle className="text-sm font-semibold">Collections by Channel</CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Payment mode distribution across all received receipts
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-4 pt-0 space-y-4 text-xs">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between font-medium">
-                    <span>Cash Collection</span>
-                    <span className="font-mono">{inr(cashTotal)} ({totalCollected > 0 ? Math.round((cashTotal / totalCollected) * 100) : 0}%)</span>
-                  </div>
-                  <Progress value={totalCollected > 0 ? (cashTotal / totalCollected) * 100 : 0} className="h-2" />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between font-medium">
-                    <span>UPI Payments</span>
-                    <span className="font-mono">{inr(upiTotal)} ({totalCollected > 0 ? Math.round((upiTotal / totalCollected) * 100) : 0}%)</span>
-                  </div>
-                  <Progress value={totalCollected > 0 ? (upiTotal / totalCollected) * 100 : 0} className="h-2" />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between font-medium">
-                    <span>Bank Transfer</span>
-                    <span className="font-mono">{inr(bankTotal)} ({totalCollected > 0 ? Math.round((bankTotal / totalCollected) * 100) : 0}%)</span>
-                  </div>
-                  <Progress value={totalCollected > 0 ? (bankTotal / totalCollected) * 100 : 0} className="h-2" />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Portfolio Health */}
-            <Card className="shadow-xs border-border">
-              <CardHeader className="p-4 md:p-5">
-                <CardTitle className="text-sm font-semibold">Portfolio Health Summary</CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Active vs overdue book performance
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-4 pt-0 space-y-3 text-xs">
-                <div className="flex justify-between items-center p-3 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>Active Performing Loans:</span>
-                  </div>
-                  <strong className="font-mono text-sm">{loans.filter((l) => l.status === "Active").length}</strong>
-                </div>
-                <div className="flex justify-between items-center p-3 rounded-lg bg-destructive/10 text-destructive">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <span>Overdue Non-Performing Loans:</span>
-                  </div>
-                  <strong className="font-mono text-sm">{loans.filter((l) => l.status === "Overdue").length}</strong>
-                </div>
-                <div className="flex justify-between items-center p-3 rounded-lg bg-muted/60 text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    <span>Closed / Fully Repaid:</span>
-                  </div>
-                  <strong className="font-mono text-sm text-foreground">{loans.filter((l) => l.status === "Closed").length}</strong>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Tab 2: Collections Ledger */}
-        <TabsContent value="collections" className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+      {/* Filter Toolbar */}
+      <Card className="shadow-xs border-border">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-wrap gap-2.5 items-center">
+            {/* Search */}
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search by customer, receipt ID or payment ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 text-xs h-9"
+                placeholder="Filter by customer, ID or loan..."
+                className="pl-8 h-8 text-xs"
               />
             </div>
-            <Select value={methodFilter} onValueChange={setMethodFilter}>
-              <SelectTrigger className="w-full sm:w-40 text-xs h-9">
-                <SelectValue placeholder="All Methods" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">All Methods</SelectItem>
-                <SelectItem value="Cash" className="text-xs">Cash</SelectItem>
-                <SelectItem value="UPI" className="text-xs">UPI</SelectItem>
-                <SelectItem value="Bank" className="text-xs">Bank</SelectItem>
-              </SelectContent>
-            </Select>
+
+            {/* Date Preset */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Period:</span>
+              <Select value={datePreset} onValueChange={(v) => setDatePreset(v as DatePreset)}>
+                <SelectTrigger className="h-8 text-xs w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="today" className="text-xs">Today</SelectItem>
+                  <SelectItem value="yesterday" className="text-xs">Yesterday</SelectItem>
+                  <SelectItem value="this_week" className="text-xs">This Week</SelectItem>
+                  <SelectItem value="last_week" className="text-xs">Last Week</SelectItem>
+                  <SelectItem value="this_month" className="text-xs">This Month</SelectItem>
+                  <SelectItem value="last_month" className="text-xs">Last Month</SelectItem>
+                  <SelectItem value="all" className="text-xs">All Time</SelectItem>
+                  <SelectItem value="custom" className="text-xs">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Frequency Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Freq:</span>
+              <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+                <SelectTrigger className="h-8 text-xs w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">All Freq</SelectItem>
+                  <SelectItem value="Daily" className="text-xs">Daily</SelectItem>
+                  <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+                  <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Method Filter (for collections) */}
+            {activeTab === "collections" && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Method:</span>
+                <Select value={methodFilter} onValueChange={setMethodFilter}>
+                  <SelectTrigger className="h-8 text-xs w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">All</SelectItem>
+                    <SelectItem value="Cash" className="text-xs">Cash</SelectItem>
+                    <SelectItem value="UPI" className="text-xs">UPI</SelectItem>
+                    <SelectItem value="Bank" className="text-xs">Bank</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          {/* Custom Date Range Pickers */}
+          {datePreset === "custom" && (
+            <div className="flex items-center gap-2 pt-2 border-t border-border/60 text-xs">
+              <span className="text-muted-foreground">From:</span>
+              <Input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-8 text-xs w-36"
+              />
+              <span className="text-muted-foreground">To:</span>
+              <Input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="h-8 text-xs w-36"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="grid grid-cols-4 max-w-lg">
+          <TabsTrigger value="collections" className="text-xs">Collections</TabsTrigger>
+          <TabsTrigger value="disbursements" className="text-xs">Disbursements</TabsTrigger>
+          <TabsTrigger value="delinquency" className="text-xs">NPA / Delinquency</TabsTrigger>
+          <TabsTrigger value="emis" className="text-xs">EMI Register</TabsTrigger>
+        </TabsList>
+
+        {/* ==================================================================== */}
+        {/* TAB 1: COLLECTIONS */}
+        {/* ==================================================================== */}
+        <TabsContent value="collections" className="m-0 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Filtered Transactions</p>
+                <p className="text-base font-bold font-mono mt-0.5">{filteredPayments.length}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Total Collected</p>
+                <p className="text-base font-bold font-mono text-emerald-600 mt-0.5">{inr(totalFilteredCollected)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Period Range</p>
+                <p className="text-xs font-semibold mt-0.5">{fmtDate(fromDate)} → {fmtDate(toDate)}</p>
+              </CardContent>
+            </Card>
           </div>
 
           <Card className="shadow-xs border-border">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-muted/50 border-b border-border text-muted-foreground font-medium">
-                    <tr>
-                      <th className="p-3">Receipt / ID</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">Loan</th>
-                      <th className="p-3">Date</th>
-                      <th className="p-3">Method</th>
-                      <th className="p-3 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {filteredPayments.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                          No collection records match your filter.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredPayments.map((p) => {
-                        const cust = customers.find((c) => c.id === p.customerId);
-                        return (
-                          <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                            <td className="p-3 font-mono">
-                              <span className="font-semibold text-foreground">{p.receiptId}</span>
-                              <span className="block text-[10px] text-muted-foreground">{p.id}</span>
-                            </td>
-                            <td className="p-3 font-medium text-foreground">{cust?.name}</td>
-                            <td className="p-3 font-mono text-muted-foreground">{p.loanId}</td>
-                            <td className="p-3 text-muted-foreground">{fmtDateTime(p.date)}</td>
-                            <td className="p-3">
-                              <Badge variant="outline" className="text-[10px]">
-                                {p.method}
-                              </Badge>
-                            </td>
-                            <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                              {inr(p.amount)}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+            <CardHeader className="p-4 pb-2 border-b border-border/60 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xs font-semibold">Collection Receipts Register</CardTitle>
+                <CardDescription className="text-xs">Every repayment received across all collection channels</CardDescription>
               </div>
-            </CardContent>
+              <Button size="sm" variant="outline" className="text-xs h-8 cursor-pointer" onClick={exportCollectionsCsv}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Export CSV
+              </Button>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/30">
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Receipt No.</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Date & Time</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Customer</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Loan ID</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Method</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Collector</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Amount (₹)</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredPayments.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="text-center p-8 text-muted-foreground">
+                        No collections matching active filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPayments.map((p) => {
+                      const c = customers.find((cust) => cust.id === p.customerId);
+                      return (
+                        <tr key={p.id} className={`hover:bg-muted/30 transition-colors ${p.reversed ? "opacity-60 line-through" : ""}`}>
+                          <td className="p-2.5 font-mono text-[10px]">{p.receiptId}</td>
+                          <td className="p-2.5 whitespace-nowrap">{fmtDateTime(p.date)}</td>
+                          <td className="p-2.5 font-medium">{c?.name}</td>
+                          <td className="p-2.5 font-mono text-[10px]">{p.loanId}</td>
+                          <td className="p-2.5"><Badge variant="outline" className="text-[9px]">{p.method}</Badge></td>
+                          <td className="p-2.5 text-muted-foreground">{p.collectedBy}</td>
+                          <td className="p-2.5 text-right font-mono font-bold text-emerald-600">+{inr(p.amount)}</td>
+                          <td className="p-2.5">
+                            {p.reversed ? (
+                              <Badge variant="destructive" className="text-[9px]">Reversed</Badge>
+                            ) : (
+                              <Badge className="text-[9px] bg-emerald-500/15 text-emerald-600 border-emerald-500/30">Valid</Badge>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border/80 bg-muted/40 font-bold">
+                    <td colSpan={6} className="p-2.5 text-right uppercase text-[10px] tracking-wide">
+                      Total Filtered Collections:
+                    </td>
+                    <td className="p-2.5 text-right font-mono text-emerald-600 text-sm">
+                      {inr(totalFilteredCollected)}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </Card>
         </TabsContent>
 
-        {/* Tab 3: Delinquency & NPA */}
-        <TabsContent value="delinquency" className="space-y-4">
+        {/* ==================================================================== */}
+        {/* TAB 2: DISBURSEMENTS */}
+        {/* ==================================================================== */}
+        <TabsContent value="disbursements" className="m-0 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Loans Sanctioned</p>
+                <p className="text-base font-bold font-mono mt-0.5">{filteredLoans.length}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Gross Sanctioned</p>
+                <p className="text-base font-bold font-mono mt-0.5">{inr(totalSanctioned)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Fees & Insurance</p>
+                <p className="text-base font-bold font-mono text-amber-600 mt-0.5">{inr(totalFees + totalInsurance)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Net Disbursed Cash</p>
+                <p className="text-base font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5">{inr(totalNetDisbursed)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card className="shadow-xs border-border">
-            <CardHeader className="p-4 md:p-5 border-b border-border/60">
-              <CardTitle className="text-sm font-semibold text-destructive flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" />
-                Delinquent Customer Exposure Matrix
-              </CardTitle>
-              <CardDescription className="text-xs text-muted-foreground">
-                Ranked by outstanding default risk. Requires prioritized field officer intervention.
-              </CardDescription>
+            <CardHeader className="p-4 pb-2 border-b border-border/60 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xs font-semibold">Disbursement & Sanctions Register</CardTitle>
+                <CardDescription className="text-xs">Contracts, upfront deductions and borrower payouts</CardDescription>
+              </div>
+              <Button size="sm" variant="outline" className="text-xs h-8 cursor-pointer" onClick={exportDisbursementsCsv}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Export CSV
+              </Button>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-muted/50 border-b border-border text-muted-foreground font-medium">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/30">
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Loan ID</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Date</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Borrower</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Freq / Tenure</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Principal (₹)</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Fees (₹)</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Insurance (₹)</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Net Disbursed (₹)</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Mode</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredLoans.length === 0 ? (
                     <tr>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">Contact</th>
-                      <th className="p-3">Location</th>
-                      <th className="p-3 text-center">Overdue EMIs</th>
-                      <th className="p-3 text-right">Total Overdue</th>
+                      <td colSpan={9} className="text-center p-8 text-muted-foreground">
+                        No loans sanctioned in selected period.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {delinquentCustomers.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="p-8 text-center text-emerald-600 font-medium">
-                          Zero delinquent accounts! All active EMIs are currently up to date.
-                        </td>
-                      </tr>
-                    ) : (
-                      delinquentCustomers.map((d) => (
-                        <tr key={d.customer.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="p-3 font-medium text-foreground">
-                            <div>{d.customer.name}</div>
-                            <div className="text-[10px] font-mono text-muted-foreground">{d.customer.id}</div>
-                          </td>
-                          <td className="p-3 font-mono text-muted-foreground">{d.customer.mobile}</td>
-                          <td className="p-3 text-muted-foreground">
-                            {d.customer.address.area}, {d.customer.address.city}
-                          </td>
-                          <td className="p-3 text-center">
-                            <Badge variant="destructive" className="text-[10px] px-2">
-                              {d.overdueCount} EMIs
+                  ) : (
+                    filteredLoans.map((l) => {
+                      const c = customers.find((cust) => cust.id === l.customerId);
+                      const net = Math.max(0, l.principal - safe(l.processingFee) - safe(l.insurance));
+                      return (
+                        <tr key={l.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="p-2.5 font-mono text-[10px]">{l.id}</td>
+                          <td className="p-2.5 whitespace-nowrap">{fmtDate(l.startDate)}</td>
+                          <td className="p-2.5 font-medium">{c?.name}</td>
+                          <td className="p-2.5">{l.tenure} {l.frequency}</td>
+                          <td className="p-2.5 text-right font-mono font-bold">{inr(l.principal)}</td>
+                          <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(l.processingFee)}</td>
+                          <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(l.insurance)}</td>
+                          <td className="p-2.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{inr(net)}</td>
+                          <td className="p-2.5">
+                            <Badge variant="outline" className="text-[9px]">
+                              {l.disbursementMethod || "Cash"}
                             </Badge>
                           </td>
-                          <td className="p-3 text-right font-mono font-bold text-destructive">
-                            {inr(d.overdueTotal)}
-                          </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      );
+                    })
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border/80 bg-muted/40 font-bold">
+                    <td colSpan={4} className="p-2.5 text-right uppercase text-[10px] tracking-wide">
+                      Total Filtered Disbursements:
+                    </td>
+                    <td className="p-2.5 text-right font-mono">{inr(totalSanctioned)}</td>
+                    <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(totalFees)}</td>
+                    <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(totalInsurance)}</td>
+                    <td className="p-2.5 text-right font-mono text-blue-600 dark:text-blue-400 text-sm">{inr(totalNetDisbursed)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ==================================================================== */}
+        {/* TAB 3: NPA / DELINQUENCY */}
+        {/* ==================================================================== */}
+        <TabsContent value="delinquency" className="m-0 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Delinquent Borrowers</p>
+                <p className="text-base font-bold font-mono text-destructive mt-0.5">{delinquentCustomers.length}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Total Portfolio at Risk (PAR)</p>
+                <p className="text-base font-bold font-mono text-destructive mt-0.5">{inr(totalDelinquentAmount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Total Overdue Installments</p>
+                <p className="text-base font-bold font-mono mt-0.5">{overdueEmis.length}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="shadow-xs border-border">
+            <CardHeader className="p-4 pb-2 border-b border-border/60 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xs font-semibold">Delinquency & NPA Ranked Watchlist</CardTitle>
+                <CardDescription className="text-xs">Prioritized by total overdue balance</CardDescription>
               </div>
-            </CardContent>
+              <Button size="sm" variant="outline" className="text-xs h-8 cursor-pointer" onClick={exportDelinquencyCsv}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Export CSV
+              </Button>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/30">
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Customer</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Mobile</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Area / City</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Overdue EMIs</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Oldest Due Date</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Total Overdue (₹)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {delinquentCustomers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center p-8 text-muted-foreground">
+                        Excellent! Zero overdue borrowers in the portfolio.
+                      </td>
+                    </tr>
+                  ) : (
+                    delinquentCustomers.map((d) => (
+                      <tr key={d.customer.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-2.5">
+                          <span className="font-semibold text-foreground">{d.customer.name}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground ml-2">({d.customer.id})</span>
+                        </td>
+                        <td className="p-2.5 font-mono">{d.customer.mobile}</td>
+                        <td className="p-2.5 text-muted-foreground">{d.customer.address.area}, {d.customer.address.city}</td>
+                        <td className="p-2.5 font-mono font-semibold text-destructive">{d.overdueCount} EMIs</td>
+                        <td className="p-2.5">{fmtDate(d.oldestDueDate)}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-destructive">{inr(d.overdueTotal)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border/80 bg-muted/40 font-bold">
+                    <td colSpan={5} className="p-2.5 text-right uppercase text-[10px] tracking-wide">
+                      Total Delinquent Amount (PAR):
+                    </td>
+                    <td className="p-2.5 text-right font-mono text-destructive text-sm">
+                      {inr(totalDelinquentAmount)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ==================================================================== */}
+        {/* TAB 4: EMI REGISTER */}
+        {/* ==================================================================== */}
+        <TabsContent value="emis" className="m-0 space-y-4">
+          <Card className="shadow-xs border-border">
+            <CardHeader className="p-4 pb-2 border-b border-border/60">
+              <CardTitle className="text-xs font-semibold">Scheduled EMI Installment Register</CardTitle>
+              <CardDescription className="text-xs">Individual installment status and payment tracking</CardDescription>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/30">
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">EMI ID</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Due Date</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Loan</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Customer</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Amount</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Paid</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Balance</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredEmis.slice(0, 100).map((e) => {
+                    const c = customers.find((cust) => cust.id === e.customerId);
+                    return (
+                      <tr key={e.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-2.5 font-mono text-[10px] text-muted-foreground">{e.id}</td>
+                        <td className="p-2.5">{fmtDate(e.dueDate)}</td>
+                        <td className="p-2.5 font-mono text-[10px]">{e.loanId} #{e.emiNo}</td>
+                        <td className="p-2.5 font-medium">{c?.name}</td>
+                        <td className="p-2.5 text-right font-mono">{inr(e.amount)}</td>
+                        <td className="p-2.5 text-right font-mono text-emerald-600">{inr(e.paid)}</td>
+                        <td className="p-2.5 text-right font-mono font-bold">{inr(Math.max(0, e.amount - e.paid))}</td>
+                        <td className="p-2.5"><StatusBadge status={e.status} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border/80 bg-muted/40 font-bold">
+                    <td colSpan={4} className="p-2.5 text-right uppercase text-[10px] tracking-wide">
+                      Total for {filteredEmis.length} EMIs:
+                    </td>
+                    <td className="p-2.5 text-right font-mono">{inr(totalEmiDueAmount)}</td>
+                    <td className="p-2.5 text-right font-mono text-emerald-600">{inr(totalEmiPaidAmount)}</td>
+                    <td className="p-2.5 text-right font-mono">{inr(totalEmiRemaining)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </Card>
         </TabsContent>
       </Tabs>
