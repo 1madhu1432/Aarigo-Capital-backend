@@ -23,6 +23,7 @@ import { useStore } from "@/store/app-store";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
@@ -233,26 +234,16 @@ export function AppSidebar({ collapsed, onToggleCollapse, className }: AppSideba
       {/* Header / Logo */}
       <div className="flex h-16 items-center justify-between px-3.5 border-b border-sidebar-border">
         {!collapsed ? (
-          <Link to="/" className="flex items-center gap-2.5 overflow-hidden group">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm group-hover:scale-105 transition-transform">
-              <CircleDollarSign className="h-5 w-5" />
-            </div>
-            <div className="flex flex-col truncate">
-              <span className="font-bold text-sm tracking-tight text-sidebar-foreground">
-                LoanFlow Hub
-              </span>
-              <span className="text-[10px] text-muted-foreground font-medium truncate">
-                EMI & Collection Suite
-              </span>
-            </div>
+          <Link to="/" className="flex items-center gap-2 overflow-hidden group">
+            <BrandLogo size="sm" showText={true} showTagline={true} />
           </Link>
         ) : (
           <Link
             to="/"
-            className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm"
-            title="LoanFlow Hub"
+            className="mx-auto flex items-center justify-center group"
+            title="AARIGO CAPITAL — Growing Today, Securing Tomorrow"
           >
-            <CircleDollarSign className="h-5 w-5" />
+            <BrandLogo size="sm" collapsed={true} />
           </Link>
         )}
 

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Eye, EyeOff, Banknote, Lock, Mail, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, AlertCircle } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BrandBanner } from "@/components/ui/brand-logo";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -48,11 +49,9 @@ function LoginPage() {
       <div className="w-full max-w-md space-y-6">
         {/* Logo */}
         <div className="text-center space-y-2">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground mx-auto shadow-sm">
-            <Banknote className="h-7 w-7" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">LoanFlow Hub</h1>
-          <p className="text-xs text-muted-foreground">Loan & EMI Collection Management</p>
+          <BrandBanner className="max-w-[260px] mx-auto" />
+          <h1 className="text-xl font-bold tracking-tight text-foreground">Aarigo Capital</h1>
+          <p className="text-xs text-muted-foreground">Growing Today, Securing Tomorrow</p>
         </div>
 
         <Card className="shadow-sm border-border">
@@ -146,7 +145,7 @@ function LoginPage() {
         </Card>
 
         <p className="text-center text-[10px] text-muted-foreground">
-          LoanFlow Hub — Secure local session. No data leaves your device.
+          Aarigo Capital — Secure local session. No data leaves your device.
         </p>
       </div>
     </div>

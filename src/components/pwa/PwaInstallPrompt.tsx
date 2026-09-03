@@ -57,7 +57,7 @@ export function PwaInstallPrompt() {
     return (
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs shadow-lg animate-in fade-in slide-in-from-bottom-2">
         <CheckCircle2 className="h-4 w-4" />
-        <span>LoanFlow Hub installed!</span>
+        <span>Aarigo Capital installed!</span>
       </div>
     );
   }
@@ -70,7 +70,7 @@ export function PwaInstallPrompt() {
           <Smartphone className="h-5 w-5" />
         </div>
         <div className="flex flex-col flex-1 min-w-0">
-          <span className="text-xs font-bold text-foreground">Install LoanFlow App</span>
+          <span className="text-xs font-bold text-foreground">Install Aarigo Capital App</span>
           <span className="text-[11px] text-muted-foreground truncate">
             Install on desktop or mobile for offline access
           </span>

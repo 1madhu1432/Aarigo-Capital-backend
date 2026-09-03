@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { CircleDollarSign, Lock, Mail, ShieldCheck } from "lucide-react";
+import { Lock, Mail, ShieldCheck } from "lucide-react";
+import { BrandLogo, BrandBanner } from "@/components/ui/brand-logo";
 
 interface AppShellProps {
   children: ReactNode;
@@ -39,14 +40,12 @@ export function AppShell({ children }: AppShellProps) {
       <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
         <Card className="w-full max-w-md shadow-lg border-border">
           <CardHeader className="text-center space-y-2 pb-4">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md mb-1">
-              <CircleDollarSign className="h-7 w-7" />
-            </div>
-            <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-              LoanFlow Hub
+            <BrandBanner className="max-w-[280px] mx-auto mb-2" />
+            <CardTitle className="text-xl font-bold tracking-tight text-foreground">
+              Aarigo Capital
             </CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
-              Professional Loan, EMI & Door-to-Door Collection System
+              Growing Today, Securing Tomorrow — Loan & EMI System
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleLoginSubmit}>
@@ -65,7 +64,8 @@ export function AppShell({ children }: AppShellProps) {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="pl-9 text-xs"
+                    placeholder="admin@loanflow.demo"
+                    className="pl-9 h-10 text-xs"
                     required
                   />
                 </div>
@@ -79,13 +79,15 @@ export function AppShell({ children }: AppShellProps) {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-9 text-xs"
+                    placeholder="••••••"
+                    className="pl-9 h-10 text-xs font-mono"
                     required
                   />
                 </div>
               </div>
 
-              <div className="rounded-lg bg-muted/50 p-3 border border-border/60 text-[11px] space-y-1 text-muted-foreground">
+              {/* Demo Hint */}
+              <div className="p-3 rounded-lg bg-muted/50 border border-border/60 text-[11px] text-muted-foreground space-y-1">
                 <div className="font-semibold text-foreground flex items-center gap-1.5">
                   <ShieldCheck className="h-3.5 w-3.5 text-primary" />
                   Demo Admin Credentials:
@@ -96,7 +98,7 @@ export function AppShell({ children }: AppShellProps) {
             </CardContent>
             <CardFooter className="flex flex-col gap-2 pt-2">
               <Button type="submit" className="w-full text-xs font-semibold h-10 cursor-pointer">
-                Sign In to LoanFlow Hub
+                Sign In to Aarigo Capital
               </Button>
             </CardFooter>
           </form>

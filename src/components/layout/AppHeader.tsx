@@ -9,6 +9,7 @@ import {
 import { useStore } from "@/store/app-store";
 import { fmtDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { ThemeToggle } from "./ThemeToggle";
 import { NotificationDropdown } from "./NotificationDropdown";
 import { AdminMenu } from "./AdminMenu";
@@ -61,11 +62,8 @@ export function AppHeader({ onOpenSearch, onToggleSidebar, sidebarCollapsed }: A
         </Button>
 
         {/* Mobile Brand */}
-        <Link to="/" className="md:hidden flex items-center gap-2 mr-1">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-xs">
-            <CircleDollarSign className="h-4 w-4" />
-          </div>
-          <span className="font-bold text-sm tracking-tight">LoanFlow</span>
+        <Link to="/" className="md:hidden flex items-center mr-1">
+          <BrandLogo size="sm" showText={true} showTagline={false} />
         </Link>
 
         {/* Breadcrumbs (Desktop) */}

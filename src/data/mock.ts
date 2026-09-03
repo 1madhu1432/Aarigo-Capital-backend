@@ -441,10 +441,10 @@ export const defaultAdmin: AdminProfile = {
 };
 
 export const defaultSettings: Settings = {
-  businessName: "LoanFlow Finance",
+  businessName: "Aarigo Capital",
   businessAddress: "12-4-88, Market Road, Kadapa, Andhra Pradesh 516001",
   businessPhone: "9848012345",
-  businessEmail: "admin@loanflow.demo",
+  businessEmail: "admin@aarigocapital.com",
   defaultInterestRate: 18,
   defaultTenure: 12,
   defaultFrequency: "Monthly",

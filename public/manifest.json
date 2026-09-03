@@ -1,55 +1,26 @@
 {
-  "short_name": "LoanFlow",
-  "name": "LoanFlow Hub — Loan & EMI Collection Suite",
-  "description": "Professional loan, EMI and door-to-door field collection management system",
-  "id": "/",
+  "short_name": "Aarigo",
+  "name": "Aarigo Capital — Loan & EMI Collection Suite",
+  "description": "Growing Today, Securing Tomorrow — Professional Loan, EMI & Door-to-Door Collection Management",
   "start_url": "/",
-  "scope": "/",
   "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6DA728",
   "orientation": "portrait-primary",
-  "theme_color": "#4f46e5",
-  "background_color": "#0f172a",
-  "categories": ["finance", "business", "productivity"],
   "icons": [
     {
-      "src": "/favicon.svg",
-      "type": "image/svg+xml",
-      "sizes": "48x48 72x72 96x96 128x128 192x192 256x256 512x512",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-192.png",
-      "type": "image/png",
+      "src": "/logo.png",
       "sizes": "192x192",
-      "purpose": "any"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
-      "type": "image/png",
+      "src": "/logo.png",
       "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ],
-  "shortcuts": [
-    {
-      "name": "Dashboard",
-      "url": "/",
-      "description": "View collections dashboard and KPIs"
-    },
-    {
-      "name": "Collect EMI",
-      "url": "/collection",
-      "description": "Open field collection portal"
-    },
-    {
-      "name": "New Loan",
-      "url": "/loans/new",
-      "description": "Disburse or calculate a new loan"
-    },
-    {
-      "name": "Customers",
-      "url": "/customers",
-      "description": "Browse customer profiles and KYC"
-    }
-  ]
+  "categories": ["finance", "business"],
+  "lang": "en-IN"
 }
