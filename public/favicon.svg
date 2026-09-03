@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#312e81" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#bgGrad)" />
+  
+  <!-- Subtle top inner highlight -->
+  <rect x="3" y="3" width="58" height="28" rx="15" fill="url(#glowGrad)" />
+
+  <!-- Outer Flow Ring / Cycle Orbit -->
+  <circle cx="32" cy="32" r="22" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="88 20" opacity="0.4" />
+  
+  <!-- Central Currency Coin Plate -->
+  <circle cx="32" cy="32" r="16.5" fill="#ffffff" fill-opacity="0.18" stroke="#ffffff" stroke-width="2.2" filter="url(#subtleShadow)" />
+
+  <!-- Stylized Rupee / Flow Symbol -->
+  <!-- Top Bar 1 -->
+  <path d="M25 24.5H39" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+  <!-- Top Bar 2 -->
+  <path d="M25 29.5H36" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" />
+  <!-- R Arc -->
+  <path d="M29 25V34C29 34 35.5 34 35.5 29.5C35.5 25 29 25 29 25Z" stroke="#ffffff" stroke-width="2.8" stroke-linejoin="round" />
+  <!-- Flowing diagonal leg extending into an upward growth pulse -->
+  <path d="M29.5 33.5L37.5 42" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Dynamic EMI flow dot -->
+  <circle cx="43" cy="21" r="2.8" fill="#10b981" stroke="#ffffff" stroke-width="1.2" />
+</svg>
