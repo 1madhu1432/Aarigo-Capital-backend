@@ -39,14 +39,8 @@ export function AppShell({ children }: AppShellProps) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
         <Card className="w-full max-w-md shadow-lg border-border">
-          <CardHeader className="text-center space-y-2 pb-4">
-            <BrandBanner className="max-w-[280px] mx-auto mb-2" />
-            <CardTitle className="text-xl font-bold tracking-tight text-foreground">
-              Aarigo Capital
-            </CardTitle>
-            <CardDescription className="text-xs text-muted-foreground">
-              Growing Today, Securing Tomorrow — Loan & EMI System
-            </CardDescription>
+          <CardHeader className="text-center pb-2">
+            <BrandBanner className="max-w-[280px] mx-auto" />
           </CardHeader>
           <form onSubmit={handleLoginSubmit}>
             <CardContent className="space-y-4">

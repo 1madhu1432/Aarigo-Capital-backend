@@ -48,10 +48,8 @@ function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         {/* Logo */}
-        <div className="text-center space-y-2">
-          <BrandBanner className="max-w-[260px] mx-auto" />
-          <h1 className="text-xl font-bold tracking-tight text-foreground">Aarigo Capital</h1>
-          <p className="text-xs text-muted-foreground">Growing Today, Securing Tomorrow</p>
+        <div className="text-center">
+          <BrandBanner className="max-w-[280px] mx-auto" />
         </div>
 
         <Card className="shadow-sm border-border">
