@@ -8,6 +8,17 @@ export type EmiFrequency = "Daily" | "Weekly" | "Monthly";
 export type PtpStatus = "Pending" | "Kept" | "Broken";
 export type DisbursementMethod = "Cash" | "Bank Transfer";
 
+export type DocumentCategory =
+  | "IDENTITY_KYC"
+  | "ADDRESS_PROOF"
+  | "INCOME_FINANCIAL"
+  | "LOAN_DOCUMENTS"
+  | "CUSTOMER_PERSONAL"
+  | "COLLATERAL_SECURITY"
+  | "OTHER";
+
+export type DocumentVerificationStatus = "Pending" | "Verified" | "Rejected";
+
 export interface Address {
   house: string;
   area: string;
@@ -36,6 +47,43 @@ export interface Customer {
   status: CustomerStatus;
   createdAt: string;
   photoHue: number;
+  photo?: string; // Base64 data URL or photo URL
+}
+
+export interface BankDetail {
+  id: string; // BNK-0001
+  customerId: string;
+  holderName: string;
+  bankName: string;
+  accountNumber: string; // plain text for storage, masked in UI
+  ifsc: string;
+  branch?: string;
+  accountType: "Savings" | "Current" | "Other";
+  upiId?: string;
+  verified: boolean;
+  verificationDate?: string;
+  verificationNotes?: string;
+  createdAt: string;
+}
+
+export interface DisbursementRecord {
+  id: string; // DSB-0001
+  loanId: string;
+  customerId: string;
+  approvedAmount: number;
+  disbursementAmount: number;
+  method: "Bank Transfer" | "UPI" | "Cash" | "Other";
+  date: string;
+  bankName?: string;
+  accountHolder?: string;
+  maskedAccount?: string;
+  ifsc?: string;
+  utr?: string;
+  status: "Pending" | "Successful" | "Failed" | "Cancelled";
+  notes?: string;
+  proofDocumentId?: string;
+  proofFileName?: string;
+  createdAt: string;
 }
 
 export interface Account {
@@ -99,6 +147,8 @@ export interface Loan {
   disbursementMethod: DisbursementMethod;
   bankTransactionId: string;
   earlyClosure?: EarlyClosureRecord;
+  disbursement?: DisbursementRecord;
+  bankDetailId?: string;
 }
 
 export interface Emi {
@@ -178,17 +228,18 @@ export interface PromiseToPay {
 export interface DocumentFile {
   id: string;
   customerId: string;
-  type:
-    | "ID Proof"
-    | "Address Proof"
-    | "PAN"
-    | "Loan Agreement"
-    | "Photograph"
-    | "Guarantor Document"
-    | "Other";
+  loanId?: string;
+  category: DocumentCategory;
+  type: string;
   name: string;
+  fileName: string;
   sizeKb: number;
   uploadedAt: string;
+  documentNumber?: string;
+  expiryDate?: string;
+  verificationStatus: DocumentVerificationStatus;
+  verificationNotes?: string;
+  fileData?: string; // Base64 data string
 }
 
 export interface AppNotification {
@@ -223,3 +274,4 @@ export interface Settings {
   notifyOverdue: boolean;
   notifyDailySummary: boolean;
 }
+

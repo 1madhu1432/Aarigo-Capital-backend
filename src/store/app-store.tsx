@@ -42,6 +42,8 @@ interface PersistedState {
   visits: Visit[];
   limitHistory: CreditLimitChange[];
   documents: DocumentFile[];
+  bankDetails?: BankDetail[];
+  disbursements?: DisbursementRecord[];
   promiseToPay: PromiseToPay[];
   earlyClosures?: EarlyClosureRecord[];
   counters: CounterState;
@@ -74,6 +76,8 @@ interface CounterState {
   doc: number;
   ptp: number;
   ecl: number;
+  bank: number;
+  dsb: number;
 }
 
 const DEFAULT_COUNTERS: CounterState = {
@@ -87,6 +91,8 @@ const DEFAULT_COUNTERS: CounterState = {
   doc: 5000,
   ptp: 0,
   ecl: 100,
+  bank: 10,
+  dsb: 10,
 };
 
 // ─── Input interfaces (exported for use in route files) ────────────────────
@@ -105,6 +111,7 @@ export interface NewCustomerInput {
   nominee: Customer["nominee"];
   guarantor: Customer["guarantor"];
   creditLimit: number;
+  photo?: string;
 }
 
 export interface NewLoanInput {
@@ -162,6 +169,8 @@ interface StoreValue {
   visits: Visit[];
   limitHistory: CreditLimitChange[];
   documents: DocumentFile[];
+  bankDetails: BankDetail[];
+  disbursements: DisbursementRecord[];
   promiseToPay: PromiseToPay[];
   earlyClosures: EarlyClosureRecord[];
   notifications: AppNotification[];
@@ -170,13 +179,21 @@ interface StoreValue {
 
   addCustomer: (input: NewCustomerInput) => { customer: Customer; account: Account };
   updateCustomer: (id: string, patch: Partial<Customer>) => void;
+  updateCustomerPhoto: (id: string, photoDataUrl: string) => void;
   addLoan: (input: NewLoanInput) => Loan;
   recordPayment: (input: PaymentInput) => { payment: Payment; receipt: Receipt };
   reversePayment: (paymentId: string, reason: string) => void;
   updateCreditLimit: (accountId: string, newLimit: number, reason: string) => void;
   upsertVisit: (visit: Partial<Visit> & { id?: string; customerId: string; loanId: string }) => Visit;
   addDocument: (customerId: string, type: DocumentFile["type"], name: string) => void;
+  addDocumentFull: (doc: Omit<DocumentFile, "id" | "uploadedAt" | "verificationStatus"> & { verificationStatus?: DocumentFile["verificationStatus"] }) => DocumentFile;
+  updateDocumentStatus: (id: string, status: DocumentFile["verificationStatus"], notes?: string) => void;
   deleteDocument: (id: string) => void;
+  addBankDetail: (detail: Omit<BankDetail, "id" | "verified" | "createdAt">) => BankDetail;
+  updateBankDetail: (id: string, patch: Partial<BankDetail>) => void;
+  verifyBankDetail: (id: string, notes?: string) => void;
+  recordDisbursement: (input: Omit<DisbursementRecord, "id" | "createdAt">) => DisbursementRecord;
+  updateDisbursementStatus: (id: string, status: DisbursementRecord["status"], utr?: string, notes?: string) => void;
   updateAdmin: (patch: Partial<AdminProfile>) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   markNotificationsRead: () => void;
@@ -206,6 +223,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [visits, setVisits] = useState<Visit[]>(seed.visits);
   const [limitHistory, setLimitHistory] = useState<CreditLimitChange[]>(seed.limitHistory);
   const [documents, setDocuments] = useState<DocumentFile[]>(seed.documents);
+  const [bankDetails, setBankDetails] = useState<BankDetail[]>(stored?.bankDetails ?? []);
+  const [disbursements, setDisbursements] = useState<DisbursementRecord[]>(stored?.disbursements ?? []);
   const [promiseToPay, setPromiseToPay] = useState<PromiseToPay[]>(
     (stored as PersistedState & { promiseToPay?: PromiseToPay[] })?.promiseToPay ?? [],
   );
@@ -249,6 +268,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       visits,
       limitHistory,
       documents,
+      bankDetails,
+      disbursements,
       promiseToPay,
       earlyClosures,
       counters,
@@ -262,7 +283,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [
     customers, accounts, loans, emis, payments, receipts, visits,
-    limitHistory, documents, promiseToPay, earlyClosures, counters, admin, settings,
+    limitHistory, documents, bankDetails, disbursements, promiseToPay, earlyClosures, counters, admin, settings,
   ]);
 
   // ── ID helpers ────────────────────────────────────────────────────────────
@@ -606,6 +627,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [counters.visit, today],
   );
 
+  const updateCustomerPhoto = useCallback<StoreValue["updateCustomerPhoto"]>((id, photoDataUrl) => {
+    setCustomers((prev) => prev.map((c) => (c.id === id ? { ...c, photo: photoDataUrl } : c)));
+  }, []);
+
   const addDocument = useCallback<StoreValue["addDocument"]>(
     (customerId, type, name) => {
       const n = nextId("doc");
@@ -613,10 +638,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         {
           id: `DOC-${n}`,
           customerId,
+          category: "OTHER",
           type,
           name,
+          fileName: `${type.toLowerCase().replace(/\s+/g, "_")}.pdf`,
           sizeKb: Math.floor(120 + Math.random() * 2000),
           uploadedAt: today,
+          verificationStatus: "Pending",
         },
         ...prev,
       ]);
@@ -624,9 +652,152 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [nextId, today],
   );
 
+  const addDocumentFull = useCallback<StoreValue["addDocumentFull"]>(
+    (docInput) => {
+      const n = counters.doc + 1;
+      setCounters((c) => ({ ...c, doc: n }));
+      const newDoc: DocumentFile = {
+        id: `DOC-${padId("DOC", n)}`,
+        customerId: docInput.customerId,
+        loanId: docInput.loanId,
+        category: docInput.category || "OTHER",
+        type: docInput.type || "Document",
+        name: docInput.name || docInput.fileName || "Document",
+        fileName: docInput.fileName || "file.pdf",
+        sizeKb: docInput.sizeKb || 250,
+        uploadedAt: today,
+        documentNumber: docInput.documentNumber,
+        expiryDate: docInput.expiryDate,
+        verificationStatus: docInput.verificationStatus || "Pending",
+        verificationNotes: docInput.verificationNotes,
+        fileData: docInput.fileData,
+      };
+      setDocuments((prev) => [newDoc, ...prev]);
+      return newDoc;
+    },
+    [counters.doc, today],
+  );
+
+  const updateDocumentStatus = useCallback<StoreValue["updateDocumentStatus"]>((id, status, notes) => {
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, verificationStatus: status, verificationNotes: notes ?? d.verificationNotes } : d)),
+    );
+  }, []);
+
   const deleteDocument = useCallback<StoreValue["deleteDocument"]>((id) => {
     setDocuments((prev) => prev.filter((d) => d.id !== id));
   }, []);
+
+  const addBankDetail = useCallback<StoreValue["addBankDetail"]>(
+    (input) => {
+      const n = counters.bank + 1;
+      setCounters((c) => ({ ...c, bank: n }));
+      const newBank: BankDetail = {
+        id: padId("BNK", n),
+        customerId: input.customerId,
+        holderName: input.holderName,
+        bankName: input.bankName,
+        accountNumber: input.accountNumber,
+        ifsc: input.ifsc.toUpperCase(),
+        branch: input.branch,
+        accountType: input.accountType,
+        upiId: input.upiId,
+        verified: false,
+        createdAt: today,
+      };
+      setBankDetails((prev) => [newBank, ...prev]);
+      return newBank;
+    },
+    [counters.bank, today],
+  );
+
+  const updateBankDetail = useCallback<StoreValue["updateBankDetail"]>((id, patch) => {
+    setBankDetails((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  }, []);
+
+  const verifyBankDetail = useCallback<StoreValue["verifyBankDetail"]>((id, notes) => {
+    setBankDetails((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              verified: true,
+              verificationDate: today,
+              verificationNotes: notes || "Manually verified by admin",
+            }
+          : b,
+      ),
+    );
+  }, [today]);
+
+  const recordDisbursement = useCallback<StoreValue["recordDisbursement"]>(
+    (input) => {
+      const n = counters.dsb + 1;
+      setCounters((c) => ({ ...c, dsb: n }));
+      const record: DisbursementRecord = {
+        id: padId("DSB", n),
+        loanId: input.loanId,
+        customerId: input.customerId,
+        approvedAmount: input.approvedAmount,
+        disbursementAmount: input.disbursementAmount,
+        method: input.method,
+        date: input.date || today,
+        bankName: input.bankName,
+        accountHolder: input.accountHolder,
+        maskedAccount: input.maskedAccount,
+        ifsc: input.ifsc,
+        utr: input.utr,
+        status: input.status || "Successful",
+        notes: input.notes,
+        proofDocumentId: input.proofDocumentId,
+        proofFileName: input.proofFileName,
+        createdAt: today,
+      };
+      setDisbursements((prev) => [record, ...prev]);
+
+      // Attach to loan
+      setLoans((prev) =>
+        prev.map((l) => (l.id === input.loanId ? { ...l, disbursement: record } : l)),
+      );
+
+      return record;
+    },
+    [counters.dsb, today],
+  );
+
+  const updateDisbursementStatus = useCallback<StoreValue["updateDisbursementStatus"]>(
+    (id, status, utr, notes) => {
+      setDisbursements((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? {
+                ...d,
+                status,
+                utr: utr ?? d.utr,
+                notes: notes ?? d.notes,
+              }
+            : d,
+        ),
+      );
+      setLoans((prev) =>
+        prev.map((l) => {
+          if (l.disbursement?.id === id) {
+            return {
+              ...l,
+              disbursement: {
+                ...l.disbursement,
+                status,
+                utr: utr ?? l.disbursement.utr,
+                notes: notes ?? l.disbursement.notes,
+              },
+            };
+          }
+          return l;
+        }),
+      );
+    },
+    [],
+  );
 
   const closeLoan = useCallback<StoreValue["closeLoan"]>((loanId) => {
     setLoans((prev) => prev.map((l) => (l.id === loanId ? { ...l, status: "Closed" } : l)));
@@ -812,6 +983,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setVisits(fresh.visits);
     setLimitHistory(fresh.limitHistory);
     setDocuments(fresh.documents);
+    setBankDetails([]);
+    setDisbursements([]);
     setPromiseToPay([]);
     setEarlyClosures([]);
     setCounters(DEFAULT_COUNTERS);
@@ -837,6 +1010,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     visits,
     limitHistory,
     documents,
+    bankDetails,
+    disbursements,
     promiseToPay,
     earlyClosures,
     notifications,
@@ -844,13 +1019,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     settings,
     addCustomer,
     updateCustomer,
+    updateCustomerPhoto,
     addLoan,
     recordPayment,
     reversePayment,
     updateCreditLimit,
     upsertVisit,
     addDocument,
+    addDocumentFull,
+    updateDocumentStatus,
     deleteDocument,
+    addBankDetail,
+    updateBankDetail,
+    verifyBankDetail,
+    recordDisbursement,
+    updateDisbursementStatus,
     updateAdmin: (patch) => setAdmin((a) => ({ ...a, ...patch })),
     updateSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
     markNotificationsRead: () => setNotifications((n) => n.map((x) => ({ ...x, read: true }))),

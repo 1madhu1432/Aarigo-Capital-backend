@@ -1,1 +1,8 @@
-feat: early closure foreclosure, EMI schedule print, early closures report
+feat: Early Closure statement, Customer Photo, Document Vault, Bank Details, Loan Disbursement
+
+- Early Loan Settlement Statement: Itemized 9-part settlement breakdown (Loan summary, paid breakdown, current pending, future interest waived, foreclosure charge, transparent math, collapsible payment breakdown, final summary, confirmation notice).
+- Customer Photo Management: Dedicated upload, camera snap, preview, replace, remove, and store against customer record.
+- Complete Document Management: Full categories (KYC, Address, Financial, Loan, Personal, Security), verification status (Pending, Verified, Rejected), preview & actions.
+- Bank Account Details: Account number masking (XXXXXX4521) with reveal toggle, IFSC validation, manual verification flag & notes.
+- Loan Disbursement: Method, UTR transfer reference, status tracking, disbursement proof upload.
+- Full local storage persistence & TypeScript safety maintained.

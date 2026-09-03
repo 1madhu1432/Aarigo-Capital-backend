@@ -29,6 +29,10 @@ import { useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, safe, todayISO } from "@/lib/format";
 import { EarlyCloseDialog } from "@/components/loans/EarlyCloseDialog";
 import { EmiSchedulePrintModal } from "@/components/loans/EmiSchedulePrintModal";
+import { CustomerPhotoUpload } from "@/components/customers/CustomerPhotoUpload";
+import { DocumentManager } from "@/components/customers/DocumentManager";
+import { BankDetailsForm } from "@/components/customers/BankDetailsForm";
+import { DisbursementForm } from "@/components/loans/DisbursementForm";
 import type { Loan } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -314,12 +318,20 @@ function CustomerProfilePage() {
       <Card className="shadow-xs border-border">
         <CardContent className="p-5">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-            <div
-              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-xl font-bold text-white shadow-sm"
-              style={{ backgroundColor: `hsl(${customer.photoHue}, 65%, 45%)` }}
-            >
-              {customer.name.charAt(0)}
-            </div>
+            {customer.photo ? (
+              <img
+                src={customer.photo}
+                alt={customer.name}
+                className="h-16 w-16 shrink-0 rounded-full object-cover border-2 border-primary/30 shadow-sm"
+              />
+            ) : (
+              <div
+                className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-xl font-bold text-white shadow-sm"
+                style={{ backgroundColor: `hsl(${customer.photoHue}, 65%, 45%)` }}
+              >
+                {customer.name.charAt(0)}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <h1 className="text-lg font-bold text-foreground truncate">{customer.name}</h1>
@@ -393,6 +405,7 @@ function CustomerProfilePage() {
               { value: "emi", label: `EMI (${customerEmis.length})` },
               { value: "payments", label: `Payments (${customerPayments.length})` },
               { value: "visits", label: `Visits (${customerVisits.length})` },
+              { value: "bank", label: "Bank Details" },
               { value: "personal", label: "Profile & KYC" },
               { value: "docs", label: `Docs (${customerDocs.length})` },
             ].map((tab) => (
@@ -796,8 +809,15 @@ function CustomerProfilePage() {
           </Card>
         </TabsContent>
 
+        {/* TAB: BANK DETAILS */}
+        <TabsContent value="bank" className="m-0">
+          <BankDetailsForm customerId={customer.id} />
+        </TabsContent>
+
         {/* TAB 8: PROFILE & KYC */}
         <TabsContent value="personal" className="m-0 space-y-4">
+          <CustomerPhotoUpload customer={customer} />
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="shadow-xs border-border">
               <CardHeader className="p-4 pb-2 border-b border-border/60">
@@ -853,31 +873,7 @@ function CustomerProfilePage() {
 
         {/* TAB 9: DOCS */}
         <TabsContent value="docs" className="m-0">
-          <Card className="shadow-xs border-border">
-            <CardHeader className="p-4 pb-2 border-b border-border/60">
-              <CardTitle className="text-xs font-semibold">Uploaded KYC & Loan Documents</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0 divide-y divide-border/60">
-              {customerDocs.length === 0 ? (
-                <EmptyState icon={FileText} title="No documents" description="No documents uploaded for this customer." className="py-10" />
-              ) : (
-                customerDocs.map((d) => (
-                  <div key={d.id} className="p-3.5 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <div className="font-medium text-foreground">{d.name}</div>
-                        <div className="text-[10px] text-muted-foreground">{d.type} • {d.sizeKb} KB • {fmtDate(d.uploadedAt)}</div>
-                      </div>
-                    </div>
-                    <Badge variant="outline" className="text-[9px]">{d.type}</Badge>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+          <DocumentManager customerId={customer.id} />
         </TabsContent>
       </Tabs>
 
