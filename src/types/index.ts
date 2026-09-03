@@ -1,0 +1,173 @@
+export type CustomerStatus = "Active" | "Inactive" | "Blocked";
+export type LoanStatus = "Active" | "Overdue" | "Closed";
+export type EmiStatus = "Paid" | "Due" | "Partial" | "Overdue" | "Upcoming";
+export type PaymentMethod = "Cash" | "UPI" | "Bank";
+export type VisitStatus = "Planned" | "Visited" | "Paid" | "Partially Paid" | "Not Paid";
+export type InterestMethod = "Flat" | "Reducing Balance";
+export type EmiFrequency = "Daily" | "Weekly" | "Monthly";
+
+export interface Address {
+  house: string;
+  area: string;
+  city: string;
+  district: string;
+  state: string;
+  pin: string;
+  landmark: string;
+}
+
+export interface Customer {
+  id: string; // CUS-000125
+  name: string;
+  guardianName: string;
+  mobile: string;
+  altMobile: string;
+  dob: string;
+  gender: "Male" | "Female" | "Other";
+  occupation: string;
+  monthlyIncome: number;
+  address: Address;
+  kycType: "Aadhaar" | "PAN" | "Voter ID" | "Driving Licence";
+  kycNumber: string;
+  nominee: { name: string; relationship: string; mobile: string; address: string };
+  guarantor: { name: string; relationship: string; mobile: string; address: string };
+  status: CustomerStatus;
+  createdAt: string;
+  photoHue: number;
+}
+
+export interface Account {
+  id: string; // ACC-000125
+  customerId: string;
+  creditLimit: number;
+  status: "Active" | "Suspended";
+  openedAt: string;
+}
+
+export interface CreditLimitChange {
+  id: string;
+  accountId: string;
+  customerId: string;
+  oldLimit: number;
+  newLimit: number;
+  reason: string;
+  date: string;
+  changedBy: string;
+}
+
+export interface Loan {
+  id: string; // LN-000125
+  customerId: string;
+  accountId: string;
+  principal: number;
+  interestRate: number;
+  interestMethod: InterestMethod;
+  processingFee: number;
+  tenure: number;
+  frequency: EmiFrequency;
+  emiAmount: number;
+  totalInterest: number;
+  totalPayable: number;
+  startDate: string;
+  firstEmiDate: string;
+  endDate: string;
+  status: LoanStatus;
+  purpose: string;
+}
+
+export interface Emi {
+  id: string; // EMI-000845
+  loanId: string;
+  customerId: string;
+  emiNo: number;
+  dueDate: string;
+  amount: number;
+  paid: number;
+  status: EmiStatus;
+}
+
+export interface Payment {
+  id: string; // PAY-001254
+  receiptId: string;
+  customerId: string;
+  loanId: string;
+  emiId: string;
+  amount: number;
+  method: PaymentMethod;
+  date: string; // ISO datetime
+  notes: string;
+  collectedBy: string;
+}
+
+export interface Receipt {
+  id: string; // RCP-2026-00125
+  paymentId: string;
+  customerId: string;
+  loanId: string;
+  amount: number;
+  method: PaymentMethod;
+  date: string;
+  status: "Issued" | "Cancelled";
+}
+
+export interface Visit {
+  id: string; // VIS-000525
+  customerId: string;
+  loanId: string;
+  date: string;
+  dueAmount: number;
+  collected: number;
+  status: VisitStatus;
+  reason?: string | undefined;
+  nextVisit?: string | undefined;
+  notes?: string | undefined;
+}
+
+export interface DocumentFile {
+  id: string;
+  customerId: string;
+  type:
+    | "ID Proof"
+    | "Address Proof"
+    | "PAN"
+    | "Loan Agreement"
+    | "Photograph"
+    | "Guarantor Document"
+    | "Other";
+  name: string;
+  sizeKb: number;
+  uploadedAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+  tone: "info" | "warning" | "success" | "danger";
+}
+
+export interface AdminProfile {
+  name: string;
+  role: string;
+  email: string;
+  mobile: string;
+}
+
+export interface Settings {
+  businessName: string;
+  businessAddress: string;
+  businessPhone: string;
+  businessEmail: string;
+  defaultInterestRate: number;
+  defaultTenure: number;
+  defaultFrequency: EmiFrequency;
+  gracePeriodDays: number;
+  lateFeePerDay: number;
+  methods: Record<PaymentMethod, boolean>;
+  receiptFooter: string;
+  receiptPrefix: string;
+  notifyOverdue: boolean;
+  notifyDailySummary: boolean;
+}
