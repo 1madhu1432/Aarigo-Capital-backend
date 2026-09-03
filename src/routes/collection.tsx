@@ -23,6 +23,8 @@ import {
 import { collectionPriorityScore, resolveCurrentEmi, useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, todayISO, addDays } from "@/lib/format";
 import type { PaymentMethod, Receipt, VisitStatus } from "@/types";
+import { computeAmortizationSchedule } from "@/utils/amortization";
+import { PaymentReceiptModal } from "@/components/loans/PaymentReceiptModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -149,6 +151,26 @@ function CollectionPage() {
   const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
   const isOverpayment = isValidAmount && parsedAmount > targetRemaining;
   const willPartial = isValidAmount && parsedAmount < targetRemaining;
+
+  const [receiptModalId, setReceiptModalId] = useState<string | null>(null);
+
+  const loanSched = useMemo(() => {
+    if (!activeLoan) return null;
+    return computeAmortizationSchedule(activeLoan, emis, payments);
+  }, [activeLoan, emis, payments]);
+
+  const targetRow = useMemo(() => {
+    if (!loanSched || !targetEmi) return null;
+    return loanSched.rows.find((r) => r.emiNo === targetEmi.emiNo);
+  }, [loanSched, targetEmi]);
+
+  const itemizedSplit = useMemo(() => {
+    if (!isValidAmount || !targetRow) return { pComp: 0, iComp: 0 };
+    const ratio = targetRow.emiAmount > 0 ? parsedAmount / targetRow.emiAmount : 1;
+    const iComp = Math.round(targetRow.interestComponent * Math.min(1, ratio));
+    const pComp = Math.max(0, parsedAmount - iComp);
+    return { pComp, iComp };
+  }, [isValidAmount, targetRow, parsedAmount]);
 
   const handleSelectCustomer = useCallback((id: string) => {
     setSelectedCustomerId(id);
@@ -650,35 +672,60 @@ function CollectionPage() {
 
                     {/* Amount validation indicator */}
                     {isValidAmount && (
-                      <div
-                        className={`flex items-center gap-1.5 text-xs mt-1 p-2 rounded-md ${
-                          isOverpayment
-                            ? "bg-destructive/10 text-destructive border border-destructive/20"
-                            : willPartial
-                            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                            : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                        }`}
-                      >
-                        {isOverpayment ? (
-                          <>
-                            <AlertTriangle className="h-4 w-4 shrink-0" />
-                            <span>
-                              Overpayment by {inr(parsedAmount - targetRemaining)}. Click Collect to choose how to allocate excess.
-                            </span>
-                          </>
-                        ) : willPartial ? (
-                          <>
-                            <Info className="h-4 w-4 shrink-0" />
-                            <span>
-                              Part payment of {inr(parsedAmount)}. Balance remaining: {inr(targetRemaining - parsedAmount)}.
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="h-4 w-4 shrink-0" />
-                            <span>Full EMI amount cleared ({inr(parsedAmount)}).</span>
-                          </>
-                        )}
+                      <div className="space-y-2 mt-1">
+                        <div
+                          className={`flex items-center gap-1.5 text-xs p-2 rounded-md ${
+                            isOverpayment
+                              ? "bg-destructive/10 text-destructive border border-destructive/20"
+                              : willPartial
+                              ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                          }`}
+                        >
+                          {isOverpayment ? (
+                            <>
+                              <AlertTriangle className="h-4 w-4 shrink-0" />
+                              <span>
+                                Overpayment by {inr(parsedAmount - targetRemaining)}. Click Record Payment to choose how to allocate excess.
+                              </span>
+                            </>
+                          ) : willPartial ? (
+                            <>
+                              <Info className="h-4 w-4 shrink-0" />
+                              <span>
+                                Part payment of {inr(parsedAmount)}. Balance remaining: {inr(targetRemaining - parsedAmount)}.
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-4 w-4 shrink-0" />
+                              <span>Full EMI amount cleared ({inr(parsedAmount)}).</span>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Itemized Payment Split Preview */}
+                        <div className="p-3 rounded-lg bg-muted/40 border border-border/60 text-xs space-y-1.5">
+                          <div className="font-semibold text-foreground text-[11px] uppercase tracking-wider mb-1">
+                            Live Payment Allocation Split
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Applied to Principal Component:</span>
+                            <span className="font-mono font-bold text-foreground">{inr(itemizedSplit.pComp)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Applied to Interest Component:</span>
+                            <span className="font-mono font-bold text-foreground">{inr(itemizedSplit.iComp)}</span>
+                          </div>
+                          {loanSched && (
+                            <div className="flex justify-between border-t border-border/50 pt-1.5 font-bold">
+                              <span>New Principal Balance:</span>
+                              <span className="font-mono text-primary">
+                                {inr(Math.max(0, loanSched.outstandingPrincipal - itemizedSplit.pComp))}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -765,10 +812,10 @@ function CollectionPage() {
                 <CardFooter className="p-4 pt-0 flex flex-col gap-2">
                   <Button
                     className="w-full text-xs h-10 cursor-pointer"
-                    onClick={() => void navigate({ to: "/receipts" })}
+                    onClick={() => setReceiptModalId(lastReceipt.id)}
                   >
                     <Printer className="h-4 w-4 mr-2" />
-                    View All Receipts
+                    View & Print Itemized Receipt
                   </Button>
                   <Button
                     variant="outline"
@@ -779,6 +826,15 @@ function CollectionPage() {
                   </Button>
                 </CardFooter>
               </Card>
+
+              {/* Itemized Payment Receipt Modal */}
+              <PaymentReceiptModal
+                open={!!receiptModalId}
+                onOpenChange={(open) => {
+                  if (!open) setReceiptModalId(null);
+                }}
+                receiptId={receiptModalId}
+              />
             </div>
           )}
         </TabsContent>

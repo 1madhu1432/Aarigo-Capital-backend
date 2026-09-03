@@ -1,20 +1,5 @@
-feat: master production enhancement for LoanFlow Hub
+feat: full itemized details in payment collection and printable receipts
 
-- Permanent ID system (CUS, ACC, LN, EMI, PAY, RCP, VIS)
-- Customer -> Account -> Loan structure & credit limit validation
-- Loan disbursement tracking & Net Disbursed calculation (Loan - Fees - Insurance)
-- Unified financial calculation engine in amortization.ts & app-store.tsx
-- Portfolio Money Summary (Total Amount Given, Total Interest Generated, Total Amount to Collect, Interest %)
-- Standard EMI calculation for Flat & Reducing Balance schedules
-- Bug fix for EMI date generation across Daily, Weekly, Monthly (leap year & month-end date handling)
-- Collection EMI priority auto-resolution & overpayment protection
-- Early Loan Foreclosure Settlement Statement with Outstanding Principal settlement & ₹0 future interest charged
-- Customer-facing A4 EMI Repayment Schedule print modal with FO signature column & signature blocks
-- Printable Customer Statements, Account Applications, and Loan Sanction Agreements
-- Automatic visit generation on collection
-- Promise to Pay (PTP) tracking & priority collection scoring
-- Customer Photo Upload, Camera snap & preview
-- Complete Document Vault with categories, metadata, and verification workflow
-- Bank Account Details recording with account number masking (XXXXXX4521) & eye toggle
-- LocalStorage persistence under loanflow-hub-store-v1 with Reset Demo Data option
-- Recharts dashboard analytics & mobile-first responsive design
+- Live Payment Allocation Split in Collection form: Real-time calculation of Principal Component Paid, Interest Component Paid, and Outstanding Principal post-payment.
+- PaymentReceiptModal: Comprehensive printable A4 payment receipt with institution branding, customer & loan details, itemized financial allocation table (Principal Paid, Interest Paid, Foreclosure Charges, Total Amount Received, UTR ref), post-payment portfolio balance summary, and physical signature blocks for Customer and Authorized Signatory.
+- Integrated PaymentReceiptModal into Receipts page and Collection success screen.

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PaymentReceiptModal } from "@/components/loans/PaymentReceiptModal";
 
 export const Route = createFileRoute("/receipts")({
   component: ReceiptsPage,
@@ -137,75 +138,14 @@ function ReceiptsPage() {
         </Card>
       )}
 
-      {/* Receipt Preview Dialog */}
-      <Dialog open={!!previewReceiptId} onOpenChange={(open) => { if (!open) setPreviewReceiptId(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">Receipt Preview</DialogTitle>
-          </DialogHeader>
-          {previewData && (
-            <div className="print-receipt">
-              {/* Receipt Content */}
-              <div className="border border-border rounded-lg p-4 space-y-3 text-xs bg-background">
-                {/* Business Header */}
-                <div className="text-center border-b border-border/60 pb-3">
-                  <h2 className="font-bold text-foreground text-sm">{settings.businessName}</h2>
-                  <p className="text-[10px] text-muted-foreground">{settings.businessAddress}</p>
-                  <p className="text-[10px] text-muted-foreground">Ph: {settings.businessPhone}</p>
-                </div>
-
-                {/* Receipt Title */}
-                <div className="text-center">
-                  <h3 className="font-bold text-foreground text-base">PAYMENT RECEIPT</h3>
-                  <p className="font-mono text-xs text-muted-foreground mt-0.5">{previewData.r.id}</p>
-                </div>
-
-                {/* Details */}
-                <div className="space-y-1.5">
-                  {[
-                    { label: "Payment ID", value: previewData.r.paymentId },
-                    { label: "Customer", value: previewData.cust?.name ?? "—" },
-                    { label: "Customer ID", value: previewData.cust?.id ?? "—" },
-                    { label: "Loan ID", value: previewData.r.loanId },
-                    { label: "Payment Method", value: previewData.r.method },
-                    { label: "Date & Time", value: fmtDateTime(previewData.r.date) },
-                    { label: "Collector", value: previewData.payment?.collectedBy ?? admin.name },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex justify-between border-b border-border/30 pb-1.5">
-                      <span className="text-muted-foreground">{label}:</span>
-                      <span className="font-medium text-foreground text-right">{value}</span>
-                    </div>
-                  ))}
-                  <div className="flex justify-between pt-2 border-t border-border">
-                    <span className="font-bold text-foreground text-sm">Amount Paid:</span>
-                    <span className="font-mono font-bold text-emerald-600 text-base">
-                      {inr(previewData.r.amount)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                {settings.receiptFooter && (
-                  <div className="text-center border-t border-border/60 pt-3">
-                    <p className="text-[10px] text-muted-foreground">{settings.receiptFooter}</p>
-                  </div>
-                )}
-                <div className="text-center">
-                  <p className="text-[9px] text-muted-foreground">This is a computer generated receipt.</p>
-                </div>
-              </div>
-
-              <Button
-                className="w-full mt-3 text-xs h-9 cursor-pointer"
-                onClick={handlePrint}
-              >
-                <Printer className="h-4 w-4 mr-2" />
-                Print Receipt
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Itemized Payment Receipt Modal */}
+      <PaymentReceiptModal
+        open={!!previewReceiptId}
+        onOpenChange={(open) => {
+          if (!open) setPreviewReceiptId(null);
+        }}
+        receiptId={previewReceiptId}
+      />
     </div>
   );
 }
