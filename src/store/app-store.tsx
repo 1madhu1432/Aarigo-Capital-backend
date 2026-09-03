@@ -17,6 +17,7 @@ import type {
   Customer,
   DisbursementMethod,
   DocumentFile,
+  EarlyClosureRecord,
   Emi,
   Loan,
   Payment,
@@ -26,6 +27,7 @@ import type {
   Settings,
   Visit,
 } from "@/types";
+import { computeAmortizationSchedule } from "@/utils/amortization";
 
 // ─── localStorage persistence ──────────────────────────────────────────────
 const STORAGE_KEY = "loanflow-hub-store-v1";
@@ -41,6 +43,7 @@ interface PersistedState {
   limitHistory: CreditLimitChange[];
   documents: DocumentFile[];
   promiseToPay: PromiseToPay[];
+  earlyClosures?: EarlyClosureRecord[];
   counters: CounterState;
   admin: AdminProfile;
   settings: Settings;
@@ -70,6 +73,7 @@ interface CounterState {
   visit: number;
   doc: number;
   ptp: number;
+  ecl: number;
 }
 
 const DEFAULT_COUNTERS: CounterState = {
@@ -82,6 +86,7 @@ const DEFAULT_COUNTERS: CounterState = {
   visit: 900,
   doc: 5000,
   ptp: 0,
+  ecl: 100,
 };
 
 // ─── Input interfaces (exported for use in route files) ────────────────────
@@ -133,6 +138,14 @@ export interface PaymentInput {
   excessAction?: "next" | "advance";
 }
 
+export interface EarlyCloseLoanInput {
+  loanId: string;
+  chargePercent: number;
+  method: PaymentMethod;
+  bankTransactionId?: string;
+  notes?: string;
+}
+
 // ─── Store interface ───────────────────────────────────────────────────────
 interface StoreValue {
   today: string;
@@ -150,6 +163,7 @@ interface StoreValue {
   limitHistory: CreditLimitChange[];
   documents: DocumentFile[];
   promiseToPay: PromiseToPay[];
+  earlyClosures: EarlyClosureRecord[];
   notifications: AppNotification[];
   admin: AdminProfile;
   settings: Settings;
@@ -167,6 +181,7 @@ interface StoreValue {
   updateSettings: (patch: Partial<Settings>) => void;
   markNotificationsRead: () => void;
   closeLoan: (loanId: string) => void;
+  earlyCloseLoan: (input: EarlyCloseLoanInput) => { earlyClosure: EarlyClosureRecord; payment: Payment; receipt: Receipt };
   addPromiseToPay: (input: Omit<PromiseToPay, "id" | "createdAt" | "status">) => PromiseToPay;
   updatePromiseToPay: (id: string, patch: Partial<PromiseToPay>) => void;
   resetDemoData: () => void;
@@ -193,6 +208,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [documents, setDocuments] = useState<DocumentFile[]>(seed.documents);
   const [promiseToPay, setPromiseToPay] = useState<PromiseToPay[]>(
     (stored as PersistedState & { promiseToPay?: PromiseToPay[] })?.promiseToPay ?? [],
+  );
+  const [earlyClosures, setEarlyClosures] = useState<EarlyClosureRecord[]>(
+    (stored as PersistedState & { earlyClosures?: EarlyClosureRecord[] })?.earlyClosures ?? [],
   );
   const [admin, setAdmin] = useState<AdminProfile>(stored?.admin ?? defaultAdmin);
   const [settings, setSettings] = useState<Settings>(stored?.settings ?? defaultSettings);
@@ -232,6 +250,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       limitHistory,
       documents,
       promiseToPay,
+      earlyClosures,
       counters,
       admin,
       settings,
@@ -243,7 +262,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [
     customers, accounts, loans, emis, payments, receipts, visits,
-    limitHistory, documents, promiseToPay, counters, admin, settings,
+    limitHistory, documents, promiseToPay, earlyClosures, counters, admin, settings,
   ]);
 
   // ── ID helpers ────────────────────────────────────────────────────────────
@@ -613,6 +632,150 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setLoans((prev) => prev.map((l) => (l.id === loanId ? { ...l, status: "Closed" } : l)));
   }, []);
 
+  const earlyCloseLoan = useCallback<StoreValue["earlyCloseLoan"]>(
+    (input) => {
+      const targetLoan = loans.find((l) => l.id === input.loanId);
+      if (!targetLoan) throw new Error("Loan not found");
+
+      // Compute precise outstanding principal using amortization schedule
+      const sched = computeAmortizationSchedule(targetLoan, emis, payments);
+      const outstandingPrincipal = sched.outstandingPrincipal;
+      const chargePercent = Math.max(0, safe(input.chargePercent));
+      const chargeAmount = Math.round((outstandingPrincipal * chargePercent) / 100);
+      const finalClosureAmount = outstandingPrincipal + chargeAmount;
+
+      const pNum = counters.payment + 1;
+      const rNum = counters.receipt + 1;
+      const eNum = (counters.ecl ?? 100) + 1;
+
+      const paymentId = padId("PAY", pNum);
+      const receiptId = `${settings.receiptPrefix}-${String(rNum).padStart(5, "0")}`;
+      const eclId = padId("ECL", eNum);
+      const nowIso = new Date().toISOString();
+
+      const earlyClosure: EarlyClosureRecord = {
+        id: eclId,
+        loanId: targetLoan.id,
+        customerId: targetLoan.customerId,
+        accountId: targetLoan.accountId,
+        closureDate: nowIso,
+        originalLoanAmount: targetLoan.principal,
+        outstandingPrincipal,
+        earlyClosureChargePercent: chargePercent,
+        earlyClosureCharge: chargeAmount,
+        futureInterestCharged: 0,
+        finalClosureAmount,
+        paymentMethod: input.method,
+        bankTransactionId: input.bankTransactionId || "",
+        paymentId,
+        receiptId,
+        notes: input.notes || "Early loan foreclosure settlement",
+        status: "Closed Early",
+      };
+
+      const payment: Payment = {
+        id: paymentId,
+        receiptId,
+        customerId: targetLoan.customerId,
+        loanId: targetLoan.id,
+        emiId: "",
+        amount: finalClosureAmount,
+        method: input.method,
+        date: nowIso,
+        notes: input.notes || `Early Closure Settlement: Principal ₹${outstandingPrincipal} + Charge ₹${chargeAmount}`,
+        collectedBy: admin.name,
+        reversed: false,
+        reversalReason: "",
+        isEarlyClosure: true,
+        earlyClosureChargePercent: chargePercent,
+        earlyClosureCharge: chargeAmount,
+        outstandingPrincipal,
+        finalClosureAmount,
+        bankTransactionId: input.bankTransactionId || "",
+      };
+
+      const receipt: Receipt = {
+        id: receiptId,
+        paymentId,
+        customerId: targetLoan.customerId,
+        loanId: targetLoan.id,
+        amount: finalClosureAmount,
+        method: input.method,
+        date: nowIso,
+        status: "Issued",
+      };
+
+      // 1. Update loan status to 'Closed Early' and attach closure record
+      setLoans((prev) =>
+        prev.map((l) =>
+          l.id === targetLoan.id
+            ? { ...l, status: "Closed Early", earlyClosure }
+            : l,
+        ),
+      );
+
+      // 2. Mark all unpaid/future EMIs as Cancelled with note
+      // (previously paid EMIs remain unchanged)
+      setEmis((prev) =>
+        prev.map((e) => {
+          if (e.loanId !== targetLoan.id) return e;
+          if (e.status === "Paid" || e.paid >= e.amount) return e;
+          return {
+            ...e,
+            status: "Cancelled",
+            remarks: "Cancelled - Early Closure",
+          };
+        }),
+      );
+
+      // 3. Append payment and receipt
+      setPayments((prev) => [payment, ...prev]);
+      setReceipts((prev) => [receipt, ...prev]);
+      setEarlyClosures((prev) => [earlyClosure, ...prev]);
+
+      // 4. Update visit history
+      setVisits((prev) => {
+        const newVisit: Visit = {
+          id: padId("VIS", counters.visit + 1),
+          customerId: targetLoan.customerId,
+          loanId: targetLoan.id,
+          date: today,
+          dueAmount: outstandingPrincipal,
+          collected: finalClosureAmount,
+          status: "Paid",
+          notes: `Early loan foreclosure settled.`,
+          paymentId,
+          receiptId,
+        };
+        return [newVisit, ...prev];
+      });
+
+      // 5. Add notification
+      setNotifications((prev) => [
+        {
+          id: `notif-${Date.now()}`,
+          title: "Loan Closed Early",
+          body: `Loan ${targetLoan.id} closed early with final settlement of ₹${finalClosureAmount.toLocaleString("en-IN")}. Future interest waived.`,
+          createdAt: nowIso,
+          read: false,
+          tone: "success",
+        },
+        ...prev,
+      ]);
+
+      setCounters((c) => ({
+        ...c,
+        payment: pNum,
+        receipt: rNum,
+        visit: c.visit + 1,
+        ecl: eNum,
+      }));
+
+      return { earlyClosure, payment, receipt };
+    },
+    [admin.name, counters.ecl, counters.payment, counters.receipt, counters.visit, emis, loans, payments, settings.receiptPrefix, today],
+  );
+
   const addPromiseToPay = useCallback<StoreValue["addPromiseToPay"]>(
     (input) => {
       const n = counters.ptp + 1;
@@ -650,6 +813,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setLimitHistory(fresh.limitHistory);
     setDocuments(fresh.documents);
     setPromiseToPay([]);
+    setEarlyClosures([]);
     setCounters(DEFAULT_COUNTERS);
     setAdmin(defaultAdmin);
     setSettings(defaultSettings);
@@ -674,6 +838,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     limitHistory,
     documents,
     promiseToPay,
+    earlyClosures,
     notifications,
     admin,
     settings,
@@ -690,6 +855,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     updateSettings: (patch) => setSettings((s) => ({ ...s, ...patch })),
     markNotificationsRead: () => setNotifications((n) => n.map((x) => ({ ...x, read: true }))),
     closeLoan,
+    earlyCloseLoan,
     addPromiseToPay,
     updatePromiseToPay,
     resetDemoData,

@@ -41,7 +41,7 @@ function AccountsPage() {
   const accountsWithData = useMemo(() => {
     return accounts.map((acc) => {
       const cust = customers.find((c) => c.id === acc.customerId);
-      const activeLoans = loans.filter((l) => l.customerId === acc.customerId && l.status !== "Closed");
+      const activeLoans = loans.filter((l) => l.customerId === acc.customerId && l.status !== "Closed" && l.status !== "Closed Early");
       const usedLimit = activeLoans.reduce((sum, l) => {
         const lEmis = emis.filter((e) => e.loanId === l.id);
         return sum + lEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);

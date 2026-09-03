@@ -112,7 +112,7 @@ function CollectionPage() {
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
   const customerLoans = useMemo(
-    () => loans.filter((l) => l.customerId === selectedCustomerId && l.status !== "Closed"),
+    () => loans.filter((l) => l.customerId === selectedCustomerId && l.status !== "Closed" && l.status !== "Closed Early"),
     [loans, selectedCustomerId],
   );
   const activeLoan = customerLoans.find((l) => l.id === selectedLoanId) ?? customerLoans[0];

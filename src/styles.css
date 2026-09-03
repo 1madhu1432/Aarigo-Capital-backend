@@ -215,11 +215,64 @@
 }
 
 @media print {
-  .no-print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm;
+  }
+
+  /* Hide app chrome & web controls */
+  header,
+  nav,
+  aside,
+  footer,
+  button,
+  .no-print,
+  [role="dialog"] > button,
+  [data-sonner-toaster],
+  .fixed,
+  .sticky {
     display: none !important;
   }
+
   body {
-    background: #fff;
-    color: #000;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Dialog overlay reset for print */
+  [role="dialog"] {
+    position: static !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  /* Repeating table header across pages (User Req B14) */
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Keep signature block on final page without cut (User Req B14) */
+  .page-break-avoid,
+  #printable-emi-schedule > div:last-child {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 }

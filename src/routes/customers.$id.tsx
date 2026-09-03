@@ -23,9 +23,13 @@ import {
   Layers,
   History,
   TrendingDown,
+  ShieldCheck,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, safe, todayISO } from "@/lib/format";
+import { EarlyCloseDialog } from "@/components/loans/EarlyCloseDialog";
+import { EmiSchedulePrintModal } from "@/components/loans/EmiSchedulePrintModal";
+import type { Loan } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +62,8 @@ function CustomerProfilePage() {
 
   const [showApplicationModal, setShowApplicationModal] = useState(false);
   const [showStatementModal, setShowStatementModal] = useState(false);
+  const [selectedPrintLoan, setSelectedPrintLoan] = useState<Loan | null>(null);
+  const [selectedEarlyCloseLoan, setSelectedEarlyCloseLoan] = useState<Loan | null>(null);
 
   const customer = customers.find((c) => c.id === id);
   const account = accounts.find((a) => a.customerId === id);
@@ -107,6 +113,18 @@ function CustomerProfilePage() {
         amount: l.principal,
         status: l.status,
       });
+
+      if (l.status === "Closed Early" || l.earlyClosure) {
+        events.push({
+          id: `evt-early-close-${l.id}`,
+          date: (l.earlyClosure?.closureDate || l.startDate).slice(0, 10),
+          type: "payment",
+          title: `Loan Closed Early: ${l.id}`,
+          desc: `Foreclosed with settlement of ${inr(l.earlyClosure?.finalClosureAmount ?? 0)}. Charge: ${inr(l.earlyClosure?.earlyClosureCharge ?? 0)} (${l.earlyClosure?.earlyClosureChargePercent ?? 0}%). Future interest waived (₹0).`,
+          amount: l.earlyClosure?.finalClosureAmount,
+          status: "Closed Early",
+        });
+      }
     });
 
     // Payments
@@ -576,33 +594,80 @@ function CustomerProfilePage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/60 bg-muted/30">
-                    {["Loan ID", "Principal", "EMI", "Frequency", "Tenure", "Start Date", "Status", "Action"].map((h) => (
+                    {["Loan ID", "Principal", "EMI", "Frequency", "Tenure", "Start Date", "Status", "Early Closure Info", "Actions"].map((h) => (
                       <th key={h} className="text-left p-3 text-[10px] text-muted-foreground font-medium">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {customerLoans.map((l) => (
-                    <tr key={l.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-3 font-mono text-xs font-medium">{l.id}</td>
-                      <td className="p-3 font-mono">{inr(l.principal)}</td>
-                      <td className="p-3 font-mono">{inr(l.emiAmount)}</td>
-                      <td className="p-3">{l.frequency}</td>
-                      <td className="p-3">{l.tenure}</td>
-                      <td className="p-3">{fmtDate(l.startDate)}</td>
-                      <td className="p-3"><StatusBadge status={l.status} /></td>
-                      <td className="p-3">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-xs h-7 px-2 cursor-pointer"
-                          onClick={() => void navigate({ to: "/loans/$id", params: { id: l.id } })}
-                        >
-                          View →
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {customerLoans.map((l) => {
+                    const isClosedEarly = l.status === "Closed Early" || Boolean(l.earlyClosure);
+                    const lEmis = emis.filter((e) => e.loanId === l.id);
+                    const lPaid = payments.filter((p) => p.loanId === l.id && !p.reversed).reduce((s, p) => s + p.amount, 0);
+                    const rem = isClosedEarly ? 0 : Math.max(0, l.totalPayable - lPaid);
+                    const canEarlyClose = l.status !== "Closed" && !isClosedEarly && rem > 0;
+
+                    return (
+                      <tr key={l.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-3 font-mono text-xs font-medium">{l.id}</td>
+                        <td className="p-3 font-mono">{inr(l.principal)}</td>
+                        <td className="p-3 font-mono">{inr(l.emiAmount)}</td>
+                        <td className="p-3">{l.frequency}</td>
+                        <td className="p-3">{l.tenure}</td>
+                        <td className="p-3">{fmtDate(l.startDate)}</td>
+                        <td className="p-3">
+                          <StatusBadge status={l.status} />
+                        </td>
+                        <td className="p-3">
+                          {isClosedEarly && l.earlyClosure ? (
+                            <div className="text-[10px] space-y-0.5 font-mono text-purple-700 dark:text-purple-400 bg-purple-500/10 p-1.5 rounded border border-purple-500/20">
+                              <p className="font-bold">Closed Early: {fmtDate(l.earlyClosure.closureDate)}</p>
+                              <p>Settlement: {inr(l.earlyClosure.finalClosureAmount)} (Charge: {inr(l.earlyClosure.earlyClosureCharge)})</p>
+                              <p className="text-muted-foreground text-[9px]">Receipt: {l.earlyClosure.receiptId} • Pay: {l.earlyClosure.paymentId}</p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-[11px] h-7 px-2 cursor-pointer"
+                              title="Print EMI Schedule"
+                              onClick={() => setSelectedPrintLoan(l)}
+                            >
+                              <Printer className="h-3 w-3 mr-1 text-primary" />
+                              Print
+                            </Button>
+
+                            {canEarlyClose && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-[11px] h-7 px-2 border-purple-500/30 text-purple-700 dark:text-purple-400 hover:bg-purple-500/10 cursor-pointer"
+                                title="Early Close Loan"
+                                onClick={() => setSelectedEarlyCloseLoan(l)}
+                              >
+                                <ShieldCheck className="h-3 w-3 mr-1" />
+                                Close Early
+                              </Button>
+                            )}
+
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-7 px-2 cursor-pointer"
+                              onClick={() => void navigate({ to: "/loans/$id", params: { id: l.id } })}
+                            >
+                              View →
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1039,6 +1104,26 @@ function CustomerProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Early Close Loan Dialog */}
+      <EarlyCloseDialog
+        loan={selectedEarlyCloseLoan}
+        customer={customer}
+        open={Boolean(selectedEarlyCloseLoan)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedEarlyCloseLoan(null);
+        }}
+      />
+
+      {/* Print EMI Schedule Modal */}
+      <EmiSchedulePrintModal
+        loan={selectedPrintLoan}
+        customer={customer}
+        open={Boolean(selectedPrintLoan)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedPrintLoan(null);
+        }}
+      />
     </div>
   );
 }

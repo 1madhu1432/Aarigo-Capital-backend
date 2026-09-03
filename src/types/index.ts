@@ -1,6 +1,6 @@
 export type CustomerStatus = "Active" | "Inactive" | "Blocked";
-export type LoanStatus = "Active" | "Overdue" | "Closed";
-export type EmiStatus = "Paid" | "Due" | "Partial" | "Overdue" | "Upcoming";
+export type LoanStatus = "Active" | "Overdue" | "Closed" | "Closed Early";
+export type EmiStatus = "Paid" | "Due" | "Partial" | "Overdue" | "Upcoming" | "Cancelled";
 export type PaymentMethod = "Cash" | "UPI" | "Bank";
 export type VisitStatus = "Planned" | "Visited" | "Paid" | "Partially Paid" | "Not Paid";
 export type InterestMethod = "Flat" | "Reducing Balance";
@@ -57,6 +57,26 @@ export interface CreditLimitChange {
   changedBy: string;
 }
 
+export interface EarlyClosureRecord {
+  id: string; // ECL-000101
+  loanId: string;
+  customerId: string;
+  accountId: string;
+  closureDate: string;
+  originalLoanAmount: number;
+  outstandingPrincipal: number;
+  earlyClosureChargePercent: number;
+  earlyClosureCharge: number;
+  futureInterestCharged: 0;
+  finalClosureAmount: number;
+  paymentMethod: PaymentMethod;
+  bankTransactionId?: string;
+  paymentId: string;
+  receiptId: string;
+  notes?: string;
+  status: "Closed Early";
+}
+
 export interface Loan {
   id: string; // LN-000125
   customerId: string;
@@ -78,6 +98,7 @@ export interface Loan {
   purpose: string;
   disbursementMethod: DisbursementMethod;
   bankTransactionId: string;
+  earlyClosure?: EarlyClosureRecord;
 }
 
 export interface Emi {
@@ -89,6 +110,7 @@ export interface Emi {
   amount: number;
   paid: number;
   status: EmiStatus;
+  remarks?: string;
 }
 
 export interface Payment {
@@ -105,6 +127,12 @@ export interface Payment {
   /** Set to true when the payment has been reversed/corrected. */
   reversed: boolean;
   reversalReason: string;
+  isEarlyClosure?: boolean;
+  earlyClosureChargePercent?: number;
+  earlyClosureCharge?: number;
+  outstandingPrincipal?: number;
+  finalClosureAmount?: number;
+  bankTransactionId?: string;
 }
 
 export interface Receipt {

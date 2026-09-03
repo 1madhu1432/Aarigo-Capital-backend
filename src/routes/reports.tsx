@@ -18,6 +18,7 @@ import {
   Printer,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
+import type { EarlyClosureRecord } from "@/types";
 import {
   inr,
   inrShort,
@@ -78,7 +79,7 @@ type DatePreset =
   | "custom";
 
 function ReportsPage() {
-  const { loans, emis, payments, customers, today, settings } = useStore();
+  const { loans, emis, payments, customers, earlyClosures, today, settings } = useStore();
   const [activeTab, setActiveTab] = useState("collections");
   const [searchQuery, setSearchQuery] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("this_month");
@@ -229,6 +230,49 @@ function ReportsPage() {
     [delinquentCustomers],
   );
 
+  // ── Early Closure Records & Aggregations (User Req A10) ────────────────────
+  const allEarlyClosures = useMemo(() => {
+    const map = new Map<string, EarlyClosureRecord>();
+    (earlyClosures ?? []).forEach((ec) => map.set(ec.id, ec));
+    loans.forEach((l) => {
+      if (l.earlyClosure) map.set(l.earlyClosure.id, l.earlyClosure);
+    });
+    return Array.from(map.values()).sort((a, b) => b.closureDate.localeCompare(a.closureDate));
+  }, [earlyClosures, loans]);
+
+  const filteredEarlyClosures = useMemo(() => {
+    return allEarlyClosures.filter((ec) => {
+      const cDate = ec.closureDate.slice(0, 10);
+      if (cDate < fromDate || cDate > toDate) return false;
+      if (methodFilter !== "all" && ec.paymentMethod !== methodFilter) return false;
+
+      const cust = customers.find((c) => c.id === ec.customerId);
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const m =
+          ec.loanId.toLowerCase().includes(q) ||
+          ec.id.toLowerCase().includes(q) ||
+          ec.customerId.toLowerCase().includes(q) ||
+          (cust?.name ?? "").toLowerCase().includes(q);
+        if (!m) return false;
+      }
+      return true;
+    });
+  }, [allEarlyClosures, fromDate, toDate, methodFilter, searchQuery, customers]);
+
+  const totalEcPrincipal = useMemo(
+    () => filteredEarlyClosures.reduce((s, ec) => s + ec.outstandingPrincipal, 0),
+    [filteredEarlyClosures],
+  );
+  const totalEcCharges = useMemo(
+    () => filteredEarlyClosures.reduce((s, ec) => s + ec.earlyClosureCharge, 0),
+    [filteredEarlyClosures],
+  );
+  const totalEcSettlement = useMemo(
+    () => filteredEarlyClosures.reduce((s, ec) => s + ec.finalClosureAmount, 0),
+    [filteredEarlyClosures],
+  );
+
   // ── CSV Exporters ─────────────────────────────────────────────────────────
   const exportCollectionsCsv = () => {
     const headers = ["Payment ID", "Receipt ID", "Date", "Customer ID", "Customer Name", "Loan ID", "Amount", "Method", "Collector", "Reversed"];
@@ -259,6 +303,49 @@ function ReportsPage() {
       ];
     });
     downloadCsv(`disbursements_${fromDate}_to_${toDate}.csv`, headers, rows);
+  };
+
+  const exportEarlyClosuresCsv = () => {
+    const headers = [
+      "Closure Date",
+      "Customer ID",
+      "Customer Name",
+      "Account ID",
+      "Loan ID",
+      "Original Loan Amount",
+      "Outstanding Principal",
+      "Early Closure Charge %",
+      "Early Closure Charge",
+      "Future Interest Charged",
+      "Final Closure Amount",
+      "Payment Method",
+      "Payment ID",
+      "Receipt ID",
+      "Transaction ID",
+      "Status",
+    ];
+    const rows = filteredEarlyClosures.map((ec) => {
+      const c = customers.find((cust) => cust.id === ec.customerId);
+      return [
+        fmtDate(ec.closureDate),
+        ec.customerId,
+        c?.name ?? "—",
+        ec.accountId,
+        ec.loanId,
+        ec.originalLoanAmount,
+        ec.outstandingPrincipal,
+        `${ec.earlyClosureChargePercent}%`,
+        ec.earlyClosureCharge,
+        0,
+        ec.finalClosureAmount,
+        ec.paymentMethod,
+        ec.paymentId,
+        ec.receiptId,
+        ec.bankTransactionId || "—",
+        ec.status,
+      ];
+    });
+    downloadCsv(`early_closures_${fromDate}_to_${toDate}.csv`, headers, rows);
   };
 
   const exportDelinquencyCsv = () => {
@@ -396,9 +483,12 @@ function ReportsPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid grid-cols-4 max-w-lg">
+        <TabsList className="grid grid-cols-5 max-w-2xl">
           <TabsTrigger value="collections" className="text-xs">Collections</TabsTrigger>
           <TabsTrigger value="disbursements" className="text-xs">Disbursements</TabsTrigger>
+          <TabsTrigger value="early_closures" className="text-xs font-semibold">
+            Early Closures ({filteredEarlyClosures.length})
+          </TabsTrigger>
           <TabsTrigger value="delinquency" className="text-xs">NPA / Delinquency</TabsTrigger>
           <TabsTrigger value="emis" className="text-xs">EMI Register</TabsTrigger>
         </TabsList>
@@ -742,6 +832,137 @@ function ReportsPage() {
                     <td></td>
                   </tr>
                 </tfoot>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ==================================================================== */}
+        {/* TAB: EARLY CLOSURES REPORT (User Req A10) */}
+        {/* ==================================================================== */}
+        <TabsContent value="early_closures" className="m-0 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Closed Early Count</p>
+                <p className="text-base font-bold font-mono mt-0.5">{filteredEarlyClosures.length}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Principal Collected</p>
+                <p className="text-base font-bold font-mono text-foreground mt-0.5">{inr(totalEcPrincipal)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Closure Charges</p>
+                <p className="text-base font-bold font-mono text-purple-700 dark:text-purple-400 mt-0.5">{inr(totalEcCharges)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border bg-purple-500/5 border-purple-500/20">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-purple-700 dark:text-purple-400 font-semibold uppercase">Total Settled</p>
+                <p className="text-base font-bold font-mono text-purple-700 dark:text-purple-400 mt-0.5">{inr(totalEcSettlement)}</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-xs border-border">
+              <CardContent className="p-3.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Future Interest Charged</p>
+                <p className="text-base font-bold font-mono text-emerald-600 mt-0.5">₹0 (Waived)</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="shadow-xs border-border">
+            <CardHeader className="p-4 pb-2 border-b border-border/60 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-xs font-semibold">Early Loan Foreclosure & Settlement Register</CardTitle>
+                <CardDescription className="text-xs">
+                  Separates principal collected, early closure charges, and waived unearned future interest
+                </CardDescription>
+              </div>
+              <Button size="sm" variant="outline" className="text-xs h-8 cursor-pointer" onClick={exportEarlyClosuresCsv}>
+                <Download className="h-3.5 w-3.5 mr-1" />
+                Export CSV
+              </Button>
+            </CardHeader>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/60 bg-muted/30">
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Closure Date</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Customer</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Loan ID</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Original Loan</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Outstanding Principal</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Charge %</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Closure Charge</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Future Interest</th>
+                    <th className="text-right p-2.5 text-[10px] text-muted-foreground font-medium">Final Amount</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Method</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Receipt ID</th>
+                    <th className="text-left p-2.5 text-[10px] text-muted-foreground font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredEarlyClosures.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="p-8 text-center text-muted-foreground">
+                        No early closure settlements recorded for this filter range.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredEarlyClosures.map((ec) => {
+                      const c = customers.find((cust) => cust.id === ec.customerId);
+                      return (
+                        <tr key={ec.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="p-2.5 font-mono text-[11px]">{fmtDate(ec.closureDate)}</td>
+                          <td className="p-2.5">
+                            <span className="font-semibold text-foreground">{c?.name ?? "—"}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono ml-1">({ec.customerId})</span>
+                          </td>
+                          <td className="p-2.5 font-mono text-[11px]">{ec.loanId}</td>
+                          <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(ec.originalLoanAmount)}</td>
+                          <td className="p-2.5 text-right font-mono font-semibold">{inr(ec.outstandingPrincipal)}</td>
+                          <td className="p-2.5 text-right font-mono">{ec.earlyClosureChargePercent}%</td>
+                          <td className="p-2.5 text-right font-mono text-purple-700 dark:text-purple-400 font-medium">
+                            {inr(ec.earlyClosureCharge)}
+                          </td>
+                          <td className="p-2.5 text-right font-mono text-emerald-600 font-medium">₹0</td>
+                          <td className="p-2.5 text-right font-mono font-bold text-purple-700 dark:text-purple-400">
+                            {inr(ec.finalClosureAmount)}
+                          </td>
+                          <td className="p-2.5">
+                            <Badge variant="outline" className="text-[9px] font-mono">
+                              {ec.paymentMethod}
+                            </Badge>
+                          </td>
+                          <td className="p-2.5 font-mono text-[10px]">{ec.receiptId}</td>
+                          <td className="p-2.5">
+                            <StatusBadge status={ec.status} />
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {filteredEarlyClosures.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-border/80 bg-muted/40 font-bold">
+                      <td colSpan={4} className="p-2.5 text-right uppercase text-[10px] tracking-wide">
+                        Totals ({filteredEarlyClosures.length} settlements):
+                      </td>
+                      <td className="p-2.5 text-right font-mono">{inr(totalEcPrincipal)}</td>
+                      <td></td>
+                      <td className="p-2.5 text-right font-mono text-purple-700 dark:text-purple-400">{inr(totalEcCharges)}</td>
+                      <td className="p-2.5 text-right font-mono text-emerald-600">₹0</td>
+                      <td className="p-2.5 text-right font-mono text-purple-700 dark:text-purple-400 font-bold">{inr(totalEcSettlement)}</td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </Card>

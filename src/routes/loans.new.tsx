@@ -98,7 +98,7 @@ function NewLoanPage() {
   const creditLimit = selectedAccount?.creditLimit ?? 0;
   const usedLimit = useMemo(() => {
     if (!selectedCustomerId) return 0;
-    const activeLoans = loans.filter((l) => l.customerId === selectedCustomerId && l.status !== "Closed");
+    const activeLoans = loans.filter((l) => l.customerId === selectedCustomerId && l.status !== "Closed" && l.status !== "Closed Early");
     return activeLoans.reduce((sum, l) => {
       const lEmis = emis.filter((e) => e.loanId === l.id);
       return sum + lEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);

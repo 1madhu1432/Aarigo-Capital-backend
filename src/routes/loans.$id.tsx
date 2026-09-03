@@ -23,6 +23,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { EarlyCloseDialog } from "@/components/loans/EarlyCloseDialog";
+import { EmiSchedulePrintModal } from "@/components/loans/EmiSchedulePrintModal";
+import { computeAmortizationSchedule } from "@/utils/amortization";
 
 export const Route = createFileRoute("/loans/$id")({
   component: LoanDetailPage,
@@ -34,6 +37,8 @@ function LoanDetailPage() {
   const navigate = useNavigate();
 
   const [showAgreementModal, setShowAgreementModal] = useState(false);
+  const [showEarlyCloseModal, setShowEarlyCloseModal] = useState(false);
+  const [showPrintScheduleModal, setShowPrintScheduleModal] = useState(false);
 
   const loan = loans.find((l) => l.id === id);
   const customer = loan ? customers.find((c) => c.id === loan.customerId) : undefined;
@@ -41,10 +46,14 @@ function LoanDetailPage() {
   const loanPayments = useMemo(() => payments.filter((p) => p.loanId === id), [payments, id]);
   const loanVisits = useMemo(() => visits.filter((v) => v.loanId === id), [visits, id]);
 
+  const isClosedEarly = loan?.status === "Closed Early" || Boolean(loan?.earlyClosure);
+  const sched = useMemo(() => (loan ? computeAmortizationSchedule(loan, emis, payments) : null), [loan, emis, payments]);
+
   const totalPaid = useMemo(() => loanPayments.filter((p) => !p.reversed).reduce((s, p) => s + p.amount, 0), [loanPayments]);
-  const outstanding = loan ? Math.max(0, loan.totalPayable - totalPaid) : 0;
+  const outstanding = isClosedEarly ? 0 : loan ? Math.max(0, loan.totalPayable - totalPaid) : 0;
   const paidEmis = loanEmis.filter((e) => e.status === "Paid").length;
   const progress = loanEmis.length > 0 ? Math.round((paidEmis / loanEmis.length) * 100) : 0;
+  const canEarlyClose = Boolean(loan && loan.status !== "Closed" && !isClosedEarly && (sched?.outstandingPrincipal ?? 0) > 0);
 
   const netDisbursed = loan ? Math.max(0, loan.principal - safe(loan.processingFee) - safe(loan.insurance)) : 0;
 
@@ -73,7 +82,31 @@ function LoanDetailPage() {
           <ArrowLeft className="h-3.5 w-3.5 mr-1" />
           Back to Loans
         </Button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Print EMI Schedule (User Req Part B) */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-9 cursor-pointer"
+            onClick={() => setShowPrintScheduleModal(true)}
+          >
+            <Printer className="h-3.5 w-3.5 mr-1.5 text-primary" />
+            Print EMI Schedule
+          </Button>
+
+          {/* Early Close Loan (User Req Part A) */}
+          {canEarlyClose && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-9 cursor-pointer border-purple-500/40 text-purple-700 dark:text-purple-400 hover:bg-purple-500/10 font-medium"
+              onClick={() => setShowEarlyCloseModal(true)}
+            >
+              <ShieldCheck className="h-3.5 w-3.5 mr-1.5 text-purple-600" />
+              Early Close Loan
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="outline"
@@ -81,16 +114,19 @@ function LoanDetailPage() {
             onClick={() => setShowAgreementModal(true)}
           >
             <FileText className="h-3.5 w-3.5 mr-1.5" />
-            Loan Agreement & Sanction Letter
+            Sanction Agreement
           </Button>
-          <Button
-            size="sm"
-            className="text-xs h-9 cursor-pointer"
-            onClick={() => void navigate({ to: "/collection" })}
-          >
-            <Banknote className="h-3.5 w-3.5 mr-1.5" />
-            Collect EMI
-          </Button>
+
+          {!isClosedEarly && loan.status !== "Closed" && (
+            <Button
+              size="sm"
+              className="text-xs h-9 cursor-pointer"
+              onClick={() => void navigate({ to: "/collection" })}
+            >
+              <Banknote className="h-3.5 w-3.5 mr-1.5" />
+              Collect EMI
+            </Button>
+          )}
         </div>
       </div>
 
@@ -102,6 +138,11 @@ function LoanDetailPage() {
               <div className="flex items-center gap-3">
                 <span className="font-mono text-lg font-bold text-foreground">{loan.id}</span>
                 <StatusBadge status={loan.status} size="sm" />
+                {isClosedEarly && (
+                  <Badge className="text-xs bg-purple-500/15 text-purple-700 border-purple-500/30">
+                    Foreclosed
+                  </Badge>
+                )}
               </div>
               {customer && (
                 <div className="flex items-center gap-2 mt-1.5">
@@ -123,13 +164,80 @@ function LoanDetailPage() {
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground">Repayment Progress</p>
-              <p className="text-sm font-bold text-foreground mt-0.5">{progress}% Complete</p>
-              <Progress value={progress} className="h-2 mt-1.5 w-32" />
-              <p className="text-[10px] text-muted-foreground mt-1">{paidEmis} of {loanEmis.length} EMIs paid</p>
+              <p className="text-sm font-bold text-foreground mt-0.5">
+                {isClosedEarly ? "100% Settled" : `${progress}% Complete`}
+              </p>
+              <Progress value={isClosedEarly ? 100 : progress} className="h-2 mt-1.5 w-32" />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {isClosedEarly ? "Loan Foreclosed Early" : `${paidEmis} of ${loanEmis.length} EMIs paid`}
+              </p>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Early Closure History Card (User Req A7) */}
+      {isClosedEarly && loan.earlyClosure && (
+        <Card className="shadow-xs border-purple-500/30 bg-purple-500/5">
+          <CardHeader className="p-4 pb-2 border-b border-purple-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300">
+                  Early Closure & Foreclosure Record
+                </CardTitle>
+              </div>
+              <Badge className="text-[10px] bg-purple-600 text-white font-bold">
+                Settled in Full
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Closure Date</p>
+              <p className="font-semibold text-foreground mt-0.5">{fmtDate(loan.earlyClosure.closureDate)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Outstanding Principal</p>
+              <p className="font-mono font-bold text-foreground mt-0.5">{inr(loan.earlyClosure.outstandingPrincipal)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Closure Charge ({loan.earlyClosure.earlyClosureChargePercent}%)</p>
+              <p className="font-mono font-bold text-purple-700 dark:text-purple-400 mt-0.5">{inr(loan.earlyClosure.earlyClosureCharge)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Future Interest Charged</p>
+              <p className="font-mono font-bold text-emerald-600 mt-0.5">₹0</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Final Settlement</p>
+              <p className="font-mono font-bold text-sm text-purple-700 dark:text-purple-400 mt-0.5">{inr(loan.earlyClosure.finalClosureAmount)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Payment Mode</p>
+              <p className="font-medium text-foreground mt-0.5">{loan.earlyClosure.paymentMethod}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Payment ID</p>
+              <p className="font-mono text-muted-foreground mt-0.5">{loan.earlyClosure.paymentId}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase">Receipt ID</p>
+              <p className="font-mono font-bold text-foreground mt-0.5">{loan.earlyClosure.receiptId}</p>
+            </div>
+            {loan.earlyClosure.bankTransactionId && (
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase">Bank Tx Ref</p>
+                <p className="font-mono text-foreground mt-0.5">{loan.earlyClosure.bankTransactionId}</p>
+              </div>
+            )}
+            <div className="sm:col-span-2">
+              <p className="text-[10px] text-muted-foreground uppercase">Settlement Notes</p>
+              <p className="text-muted-foreground mt-0.5 truncate">{loan.earlyClosure.notes || "Foreclosed early"}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Financial Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -193,21 +301,22 @@ function LoanDetailPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/60 bg-muted/30">
-                    {["EMI ID", "No.", "Due Date", "Amount", "Paid", "Remaining", "Status"].map((h) => (
-                      <th key={h} className={`p-3 text-[10px] text-muted-foreground font-medium ${h === "Amount" || h === "Paid" || h === "Remaining" ? "text-right" : "text-left"}`}>{h}</th>
+                    {["No.", "Due Date", "Amount", "Principal Component", "Interest", "Remaining", "Status", "Remarks"].map((h) => (
+                      <th key={h} className={`p-3 text-[10px] text-muted-foreground font-medium ${h === "Amount" || h === "Principal Component" || h === "Interest" || h === "Remaining" ? "text-right" : "text-left"}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {loanEmis.map((e) => (
-                    <tr key={e.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-3 font-mono text-[10px] text-muted-foreground">{e.id}</td>
-                      <td className="p-3">{e.emiNo}</td>
-                      <td className="p-3">{fmtDate(e.dueDate)}</td>
-                      <td className="p-3 text-right font-mono">{inr(e.amount)}</td>
-                      <td className="p-3 text-right font-mono text-emerald-600">{inr(e.paid)}</td>
-                      <td className="p-3 text-right font-mono">{inr(Math.max(0, e.amount - e.paid))}</td>
-                      <td className="p-3"><StatusBadge status={e.status} /></td>
+                  {(sched?.rows ?? []).map((r) => (
+                    <tr key={r.emiId} className="hover:bg-muted/30 transition-colors">
+                      <td className="p-3 font-mono font-bold">{r.emiNo}</td>
+                      <td className="p-3 font-mono">{fmtDate(r.dueDate)}</td>
+                      <td className="p-3 text-right font-mono font-bold">{inr(r.emiAmount)}</td>
+                      <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.principalComponent)}</td>
+                      <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.interestComponent)}</td>
+                      <td className="p-3 text-right font-mono font-semibold">{inr(r.remainingAmount)}</td>
+                      <td className="p-3"><StatusBadge status={r.status} /></td>
+                      <td className="p-3 text-muted-foreground text-[11px] truncate max-w-[150px]">{r.remarks}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -407,6 +516,22 @@ function LoanDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Early Close Loan Dialog (Part A) */}
+      <EarlyCloseDialog
+        loan={loan}
+        customer={customer}
+        open={showEarlyCloseModal}
+        onOpenChange={setShowEarlyCloseModal}
+      />
+
+      {/* Print EMI Schedule Modal (Part B) */}
+      <EmiSchedulePrintModal
+        loan={loan}
+        customer={customer}
+        open={showPrintScheduleModal}
+        onOpenChange={setShowPrintScheduleModal}
+      />
     </div>
   );
 }

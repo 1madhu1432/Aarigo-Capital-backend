@@ -69,12 +69,20 @@ export function addWeeks(iso: string, weeks: number): string {
 }
 
 export function addMonths(iso: string, months: number): string {
-  const d = new Date(iso + "T00:00:00");
-  const day = d.getDate();
-  d.setMonth(d.getMonth() + months);
-  // Clamp to last day of month when source day doesn't exist (e.g. Jan 31 → Feb 28)
-  if (d.getDate() < day) d.setDate(0);
-  return toISO(d);
+  const parts = iso.split("-").map(Number);
+  const y = parts[0] ?? new Date().getFullYear();
+  const m = (parts[1] ?? 1) - 1; // 0-based month
+  const targetDay = parts[2] ?? 1;
+
+  const targetMonth = m + months;
+  const targetYear = y + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+
+  // Last day of target month (day 0 of next month)
+  const lastDayOfMonth = new Date(targetYear, normalizedMonth + 1, 0).getDate();
+  const day = Math.min(targetDay, lastDayOfMonth);
+
+  return `${targetYear}-${String(normalizedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function daysBetween(a: string, b: string): number {

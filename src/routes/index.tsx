@@ -41,7 +41,7 @@ function DashboardPage() {
   
   const totalOutstanding = useMemo(() => {
     return loans
-      .filter((l) => l.status !== "Closed")
+      .filter((l) => l.status !== "Closed" && l.status !== "Closed Early")
       .reduce((sum, l) => {
         const loanEmis = emis.filter((e) => e.loanId === l.id);
         const remaining = loanEmis.reduce((s, e) => s + (e.amount - e.paid), 0);

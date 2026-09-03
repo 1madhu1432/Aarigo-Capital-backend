@@ -9,9 +9,13 @@ import {
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Printer,
+  ShieldCheck,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import { inr, fmtDate } from "@/lib/format";
+import { EarlyCloseDialog } from "@/components/loans/EarlyCloseDialog";
+import { EmiSchedulePrintModal } from "@/components/loans/EmiSchedulePrintModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,14 +43,17 @@ function LoansPage() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("active");
+  const [printLoan, setPrintLoan] = useState<(typeof loans)[0] | null>(null);
+  const [earlyCloseLoan, setEarlyCloseLoan] = useState<(typeof loans)[0] | null>(null);
 
   const filtered = useMemo(() => {
+    if (!query) return loans;
     const q = query.toLowerCase();
     return loans.filter((l) => {
-      const cust = customers.find((c) => c.id === l.customerId);
+      const c = customers.find((cust) => cust.id === l.customerId);
       const matchesQ =
         l.id.toLowerCase().includes(q) ||
-        (cust?.name ?? "").toLowerCase().includes(q) ||
+        (c?.name ?? "").toLowerCase().includes(q) ||
         l.customerId.toLowerCase().includes(q);
       return matchesQ;
     });
@@ -55,17 +62,19 @@ function LoansPage() {
   const byStatus = {
     active: filtered.filter((l) => l.status === "Active"),
     overdue: filtered.filter((l) => l.status === "Overdue"),
-    closed: filtered.filter((l) => l.status === "Closed"),
+    closed: filtered.filter((l) => l.status === "Closed" || l.status === "Closed Early"),
   };
 
   const LoanRow = ({ loan }: { loan: (typeof loans)[0] }) => {
     const cust = customers.find((c) => c.id === loan.customerId);
     const loanEmis = emis.filter((e) => e.loanId === loan.id);
     const paidEmis = loanEmis.filter((e) => e.status === "Paid").length;
-    const totalPaid = payments.filter((p) => p.loanId === loan.id).reduce((s, p) => s + p.amount, 0);
-    const outstanding = Math.max(0, loan.totalPayable - totalPaid);
-    const progress = loanEmis.length > 0 ? Math.round((paidEmis / loanEmis.length) * 100) : 0;
-    const nextEmi = loanEmis.find((e) => e.status !== "Paid" && e.status !== "Partial");
+    const totalPaid = payments.filter((p) => p.loanId === loan.id && !p.reversed).reduce((s, p) => s + p.amount, 0);
+    const isClosedEarly = loan.status === "Closed Early" || Boolean(loan.earlyClosure);
+    const outstanding = isClosedEarly ? 0 : Math.max(0, loan.totalPayable - totalPaid);
+    const progress = isClosedEarly ? 100 : loanEmis.length > 0 ? Math.round((paidEmis / loanEmis.length) * 100) : 0;
+    const nextEmi = loanEmis.find((e) => e.status !== "Paid" && e.status !== "Partial" && e.status !== "Cancelled");
+    const canEarlyClose = loan.status !== "Closed" && !isClosedEarly && outstanding > 0;
 
     return (
       <div
@@ -115,15 +124,46 @@ function LoansPage() {
             </div>
           </div>
         </div>
-        <div className="mt-2.5 flex items-center gap-3">
-          <Progress value={progress} className="h-1 flex-1" />
-          <span className="text-[10px] text-muted-foreground shrink-0">{paidEmis}/{loanEmis.length} EMIs</span>
-          {nextEmi && (
+        <div className="mt-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <Progress value={progress} className="h-1 flex-1" />
             <span className="text-[10px] text-muted-foreground shrink-0">
-              Next: {fmtDate(nextEmi.dueDate)}
+              {isClosedEarly ? "Foreclosed" : `${paidEmis}/${loanEmis.length} EMIs`}
             </span>
-          )}
-          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-primary transition-colors" />
+            {nextEmi && !isClosedEarly && (
+              <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+                Next: {fmtDate(nextEmi.dueDate)}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
+              title="Print EMI Schedule"
+              onClick={() => setPrintLoan(loan)}
+            >
+              <Printer className="h-3.5 w-3.5 mr-1 text-primary" />
+              <span className="hidden md:inline">Print</span>
+            </Button>
+
+            {canEarlyClose && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px] text-purple-700 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/10 cursor-pointer"
+                title="Early Close Loan"
+                onClick={() => setEarlyCloseLoan(loan)}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                <span className="hidden md:inline">Early Close</span>
+              </Button>
+            )}
+
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-primary transition-colors ml-1" />
+          </div>
         </div>
       </div>
     );
@@ -213,6 +253,26 @@ function LoansPage() {
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Early Close Dialog */}
+      <EarlyCloseDialog
+        loan={earlyCloseLoan}
+        customer={customers.find((c) => c.id === earlyCloseLoan?.customerId)}
+        open={Boolean(earlyCloseLoan)}
+        onOpenChange={(open) => {
+          if (!open) setEarlyCloseLoan(null);
+        }}
+      />
+
+      {/* Print EMI Schedule Modal */}
+      <EmiSchedulePrintModal
+        loan={printLoan}
+        customer={customers.find((c) => c.id === printLoan?.customerId)}
+        open={Boolean(printLoan)}
+        onOpenChange={(open) => {
+          if (!open) setPrintLoan(null);
+        }}
+      />
     </div>
   );
 }

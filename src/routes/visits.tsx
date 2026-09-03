@@ -106,7 +106,7 @@ function VisitsPage() {
   };
 
   const selectedCustomer = customers.find((c) => c.id === recordForm.customerId);
-  const customerLoans = loans.filter((l) => l.customerId === recordForm.customerId && l.status !== "Closed");
+  const customerLoans = loans.filter((l) => l.customerId === recordForm.customerId && l.status !== "Closed" && l.status !== "Closed Early");
 
   const statusColors: Record<VisitStatus, string> = {
     Planned: "text-blue-600",

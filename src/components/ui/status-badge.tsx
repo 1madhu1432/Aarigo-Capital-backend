@@ -14,6 +14,7 @@ const statusConfig: Record<string, { className: string; label?: string }> = {
   // Loan statuses
   Active: { className: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-400" },
   Closed: { className: "bg-muted text-muted-foreground border-border" },
+  "Closed Early": { className: "bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-400" },
   // Customer statuses
   Inactive: { className: "bg-muted text-muted-foreground border-border" },
   Blocked: { className: "bg-destructive/15 text-destructive border-destructive/30" },
@@ -25,6 +26,7 @@ const statusConfig: Record<string, { className: string; label?: string }> = {
   // Receipt/other
   Issued: { className: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-400" },
   Cancelled: { className: "bg-destructive/15 text-destructive border-destructive/30" },
+  "Cancelled - Early Closure": { className: "bg-slate-500/15 text-slate-700 border-slate-400/30 dark:text-slate-400" },
   Suspended: { className: "bg-destructive/15 text-destructive border-destructive/30" },
 };
 
