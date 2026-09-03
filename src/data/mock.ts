@@ -418,15 +418,19 @@ export function buildLimitHistory(accounts: Account[], customers: Customer[]): C
 export function buildDocuments(customers: Customer[]): DocumentFile[] {
   const docs: DocumentFile[] = [];
   customers.slice(0, 12).forEach((c, i) => {
-    const types: DocumentFile["type"][] = ["ID Proof", "Address Proof", "Photograph", "Loan Agreement"];
+    const types: string[] = ["Aadhaar Card", "Address Proof", "Customer Photo", "Loan Agreement"];
     types.slice(0, 2 + (i % 3)).forEach((t, k) => {
+      const fileName = `${c.id}-${t.toLowerCase().replace(/ /g, "-")}.pdf`;
       docs.push({
         id: `DOC-${1000 + i * 10 + k}`,
         customerId: c.id,
+        category: k === 0 ? "IDENTITY_KYC" : k === 1 ? "ADDRESS_PROOF" : k === 2 ? "CUSTOMER_PERSONAL" : "LOAN_DOCUMENTS",
         type: t,
-        name: `${c.id}-${t.toLowerCase().replace(/ /g, "-")}.pdf`,
+        name: `${t} - ${c.name}`,
+        fileName,
         sizeKb: between(120, 2400),
         uploadedAt: addMonths(TODAY, -between(1, 12)),
+        verificationStatus: i % 2 === 0 ? "Verified" : "Pending",
       });
     });
   });

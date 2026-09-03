@@ -159,7 +159,7 @@ export function CustomerPhotoUpload({ customer, className }: CustomerPhotoUpload
                   {customer.photo ? "Replace Photo" : "Upload Photo"}
                 </Button>
 
-                {navigator.mediaDevices?.getUserMedia && (
+                {Boolean(navigator.mediaDevices?.getUserMedia) && (
                   <Button
                     type="button"
                     size="sm"

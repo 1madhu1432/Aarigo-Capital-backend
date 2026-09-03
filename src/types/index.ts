@@ -47,7 +47,7 @@ export interface Customer {
   status: CustomerStatus;
   createdAt: string;
   photoHue: number;
-  photo?: string; // Base64 data URL or photo URL
+  photo?: string | undefined; // Base64 data URL or photo URL
 }
 
 export interface BankDetail {
@@ -57,12 +57,12 @@ export interface BankDetail {
   bankName: string;
   accountNumber: string; // plain text for storage, masked in UI
   ifsc: string;
-  branch?: string;
+  branch?: string | undefined;
   accountType: "Savings" | "Current" | "Other";
-  upiId?: string;
+  upiId?: string | undefined;
   verified: boolean;
-  verificationDate?: string;
-  verificationNotes?: string;
+  verificationDate?: string | undefined;
+  verificationNotes?: string | undefined;
   createdAt: string;
 }
 
@@ -74,15 +74,15 @@ export interface DisbursementRecord {
   disbursementAmount: number;
   method: "Bank Transfer" | "UPI" | "Cash" | "Other";
   date: string;
-  bankName?: string;
-  accountHolder?: string;
-  maskedAccount?: string;
-  ifsc?: string;
-  utr?: string;
+  bankName?: string | undefined;
+  accountHolder?: string | undefined;
+  maskedAccount?: string | undefined;
+  ifsc?: string | undefined;
+  utr?: string | undefined;
   status: "Pending" | "Successful" | "Failed" | "Cancelled";
-  notes?: string;
-  proofDocumentId?: string;
-  proofFileName?: string;
+  notes?: string | undefined;
+  proofDocumentId?: string | undefined;
+  proofFileName?: string | undefined;
   createdAt: string;
 }
 
@@ -118,10 +118,10 @@ export interface EarlyClosureRecord {
   futureInterestCharged: 0;
   finalClosureAmount: number;
   paymentMethod: PaymentMethod;
-  bankTransactionId?: string;
+  bankTransactionId?: string | undefined;
   paymentId: string;
   receiptId: string;
-  notes?: string;
+  notes?: string | undefined;
   status: "Closed Early";
 }
 
@@ -146,9 +146,9 @@ export interface Loan {
   purpose: string;
   disbursementMethod: DisbursementMethod;
   bankTransactionId: string;
-  earlyClosure?: EarlyClosureRecord;
-  disbursement?: DisbursementRecord;
-  bankDetailId?: string;
+  earlyClosure?: EarlyClosureRecord | undefined;
+  disbursement?: DisbursementRecord | undefined;
+  bankDetailId?: string | undefined;
 }
 
 export interface Emi {
@@ -160,7 +160,7 @@ export interface Emi {
   amount: number;
   paid: number;
   status: EmiStatus;
-  remarks?: string;
+  remarks?: string | undefined;
 }
 
 export interface Payment {
@@ -177,12 +177,12 @@ export interface Payment {
   /** Set to true when the payment has been reversed/corrected. */
   reversed: boolean;
   reversalReason: string;
-  isEarlyClosure?: boolean;
-  earlyClosureChargePercent?: number;
-  earlyClosureCharge?: number;
-  outstandingPrincipal?: number;
-  finalClosureAmount?: number;
-  bankTransactionId?: string;
+  isEarlyClosure?: boolean | undefined;
+  earlyClosureChargePercent?: number | undefined;
+  earlyClosureCharge?: number | undefined;
+  outstandingPrincipal?: number | undefined;
+  finalClosureAmount?: number | undefined;
+  bankTransactionId?: string | undefined;
 }
 
 export interface Receipt {
@@ -228,18 +228,18 @@ export interface PromiseToPay {
 export interface DocumentFile {
   id: string;
   customerId: string;
-  loanId?: string;
+  loanId?: string | undefined;
   category: DocumentCategory;
   type: string;
   name: string;
   fileName: string;
   sizeKb: number;
   uploadedAt: string;
-  documentNumber?: string;
-  expiryDate?: string;
+  documentNumber?: string | undefined;
+  expiryDate?: string | undefined;
   verificationStatus: DocumentVerificationStatus;
-  verificationNotes?: string;
-  fileData?: string; // Base64 data string
+  verificationNotes?: string | undefined;
+  fileData?: string | undefined; // Base64 data string
 }
 
 export interface AppNotification {

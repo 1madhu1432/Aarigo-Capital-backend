@@ -13,10 +13,14 @@ import type {
   Account,
   AdminProfile,
   AppNotification,
+  BankDetail,
   CreditLimitChange,
   Customer,
   DisbursementMethod,
+  DisbursementRecord,
+  DocumentCategory,
   DocumentFile,
+  DocumentVerificationStatus,
   EarlyClosureRecord,
   Emi,
   Loan,
@@ -659,18 +663,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const newDoc: DocumentFile = {
         id: `DOC-${padId("DOC", n)}`,
         customerId: docInput.customerId,
-        loanId: docInput.loanId,
+        ...(docInput.loanId ? { loanId: docInput.loanId } : {}),
         category: docInput.category || "OTHER",
         type: docInput.type || "Document",
         name: docInput.name || docInput.fileName || "Document",
         fileName: docInput.fileName || "file.pdf",
         sizeKb: docInput.sizeKb || 250,
         uploadedAt: today,
-        documentNumber: docInput.documentNumber,
-        expiryDate: docInput.expiryDate,
+        ...(docInput.documentNumber ? { documentNumber: docInput.documentNumber } : {}),
+        ...(docInput.expiryDate ? { expiryDate: docInput.expiryDate } : {}),
         verificationStatus: docInput.verificationStatus || "Pending",
-        verificationNotes: docInput.verificationNotes,
-        fileData: docInput.fileData,
+        ...(docInput.verificationNotes ? { verificationNotes: docInput.verificationNotes } : {}),
+        ...(docInput.fileData ? { fileData: docInput.fileData } : {}),
       };
       setDocuments((prev) => [newDoc, ...prev]);
       return newDoc;
@@ -680,7 +684,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const updateDocumentStatus = useCallback<StoreValue["updateDocumentStatus"]>((id, status, notes) => {
     setDocuments((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, verificationStatus: status, verificationNotes: notes ?? d.verificationNotes } : d)),
+      prev.map((d) => {
+        if (d.id !== id) return d;
+        const updated: DocumentFile = {
+          ...d,
+          verificationStatus: status,
+          ...(notes ? { verificationNotes: notes } : {}),
+        };
+        return updated;
+      }),
     );
   }, []);
 
@@ -699,9 +711,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         bankName: input.bankName,
         accountNumber: input.accountNumber,
         ifsc: input.ifsc.toUpperCase(),
-        branch: input.branch,
+        ...(input.branch ? { branch: input.branch } : {}),
         accountType: input.accountType,
-        upiId: input.upiId,
+        ...(input.upiId ? { upiId: input.upiId } : {}),
         verified: false,
         createdAt: today,
       };
@@ -742,15 +754,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         disbursementAmount: input.disbursementAmount,
         method: input.method,
         date: input.date || today,
-        bankName: input.bankName,
-        accountHolder: input.accountHolder,
-        maskedAccount: input.maskedAccount,
-        ifsc: input.ifsc,
-        utr: input.utr,
+        ...(input.bankName ? { bankName: input.bankName } : {}),
+        ...(input.accountHolder ? { accountHolder: input.accountHolder } : {}),
+        ...(input.maskedAccount ? { maskedAccount: input.maskedAccount } : {}),
+        ...(input.ifsc ? { ifsc: input.ifsc } : {}),
+        ...(input.utr ? { utr: input.utr } : {}),
         status: input.status || "Successful",
-        notes: input.notes,
-        proofDocumentId: input.proofDocumentId,
-        proofFileName: input.proofFileName,
+        ...(input.notes ? { notes: input.notes } : {}),
+        ...(input.proofDocumentId ? { proofDocumentId: input.proofDocumentId } : {}),
+        ...(input.proofFileName ? { proofFileName: input.proofFileName } : {}),
         createdAt: today,
       };
       setDisbursements((prev) => [record, ...prev]);
@@ -773,8 +785,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ? {
                 ...d,
                 status,
-                utr: utr ?? d.utr,
-                notes: notes ?? d.notes,
+                ...(utr ? { utr } : {}),
+                ...(notes ? { notes } : {}),
               }
             : d,
         ),
@@ -782,14 +794,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setLoans((prev) =>
         prev.map((l) => {
           if (l.disbursement?.id === id) {
+            const updatedDisb: DisbursementRecord = {
+              ...l.disbursement,
+              status,
+              ...(utr ? { utr } : {}),
+              ...(notes ? { notes } : {}),
+            };
             return {
               ...l,
-              disbursement: {
-                ...l.disbursement,
-                status,
-                utr: utr ?? l.disbursement.utr,
-                notes: notes ?? l.disbursement.notes,
-              },
+              disbursement: updatedDisb,
             };
           }
           return l;

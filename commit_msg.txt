@@ -1,8 +1,20 @@
-feat: Early Closure statement, Customer Photo, Document Vault, Bank Details, Loan Disbursement
+feat: master production enhancement for LoanFlow Hub
 
-- Early Loan Settlement Statement: Itemized 9-part settlement breakdown (Loan summary, paid breakdown, current pending, future interest waived, foreclosure charge, transparent math, collapsible payment breakdown, final summary, confirmation notice).
-- Customer Photo Management: Dedicated upload, camera snap, preview, replace, remove, and store against customer record.
-- Complete Document Management: Full categories (KYC, Address, Financial, Loan, Personal, Security), verification status (Pending, Verified, Rejected), preview & actions.
-- Bank Account Details: Account number masking (XXXXXX4521) with reveal toggle, IFSC validation, manual verification flag & notes.
-- Loan Disbursement: Method, UTR transfer reference, status tracking, disbursement proof upload.
-- Full local storage persistence & TypeScript safety maintained.
+- Permanent ID system (CUS, ACC, LN, EMI, PAY, RCP, VIS)
+- Customer -> Account -> Loan structure & credit limit validation
+- Loan disbursement tracking & Net Disbursed calculation (Loan - Fees - Insurance)
+- Unified financial calculation engine in amortization.ts & app-store.tsx
+- Portfolio Money Summary (Total Amount Given, Total Interest Generated, Total Amount to Collect, Interest %)
+- Standard EMI calculation for Flat & Reducing Balance schedules
+- Bug fix for EMI date generation across Daily, Weekly, Monthly (leap year & month-end date handling)
+- Collection EMI priority auto-resolution & overpayment protection
+- Early Loan Foreclosure Settlement Statement with Outstanding Principal settlement & ₹0 future interest charged
+- Customer-facing A4 EMI Repayment Schedule print modal with FO signature column & signature blocks
+- Printable Customer Statements, Account Applications, and Loan Sanction Agreements
+- Automatic visit generation on collection
+- Promise to Pay (PTP) tracking & priority collection scoring
+- Customer Photo Upload, Camera snap & preview
+- Complete Document Vault with categories, metadata, and verification workflow
+- Bank Account Details recording with account number masking (XXXXXX4521) & eye toggle
+- LocalStorage persistence under loanflow-hub-store-v1 with Reset Demo Data option
+- Recharts dashboard analytics & mobile-first responsive design
