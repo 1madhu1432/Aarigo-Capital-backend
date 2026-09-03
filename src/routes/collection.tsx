@@ -961,11 +961,12 @@ function CollectionPage() {
         {/* TAB 3: TODAY'S LOG */}
         {/* ==================================================================== */}
         <TabsContent value="today" className="m-0 space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Total Collected", value: inr(totalToday), color: "text-emerald-600" },
               { label: "Due Today", value: inr(totalDue), color: "" },
-              { label: "Pending EMIs", value: String(Math.max(0, pendingCount)), color: pendingCount > 0 ? "text-amber-600" : "" },
+              { label: "Cash", value: inr(cashToday), color: "text-amber-600" },
+              { label: "UPI / Bank", value: inr(upiToday + bankToday), color: "text-blue-600" },
             ].map(({ label, value, color }) => (
               <Card key={label} className="shadow-xs border-border">
                 <CardContent className="p-3.5">
@@ -980,11 +981,11 @@ function CollectionPage() {
             <CardHeader className="p-4 md:p-5 flex flex-row items-center justify-between border-b border-border/60">
               <div>
                 <CardTitle className="text-sm font-semibold">Today's Collections Log</CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">{fmtDate(today)}</CardDescription>
+                <CardDescription className="text-xs text-muted-foreground">{fmtDate(today)} • {todayPayments.length} transaction{todayPayments.length === 1 ? "" : "s"}</CardDescription>
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold font-mono text-emerald-600">{inr(totalToday)}</div>
-                <div className="text-[10px] text-muted-foreground">{collectionPct}% of due</div>
+                <div className="text-[10px] text-muted-foreground">{collectionPct}% of due ({inr(totalDue)})</div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -994,30 +995,84 @@ function CollectionPage() {
                 <div className="divide-y divide-border/60">
                   {todayPayments.map((p) => {
                     const c = customers.find((cust) => cust.id === p.customerId);
+                    const loan = loans.find((l) => l.id === p.loanId);
+                    const emi = emis.find((e) => e.id === p.emiId);
+                    // Compute principal / interest split for this payment
+                    const loanSched2 = loan ? computeAmortizationSchedule(loan, emis, payments) : null;
+                    const emiRow = loanSched2 && emi ? loanSched2.rows.find((r) => r.emiNo === emi.emiNo) : null;
+                    let pPaid = 0;
+                    let iPaid = 0;
+                    if (emiRow) {
+                      const ratio = emiRow.emiAmount > 0 ? p.amount / emiRow.emiAmount : 1;
+                      iPaid = Math.round(emiRow.interestComponent * Math.min(1, ratio));
+                      pPaid = Math.max(0, p.amount - iPaid);
+                    }
                     return (
-                      <div key={p.id} className="p-4 flex items-center justify-between text-xs hover:bg-muted/30">
-                        <div className="flex items-center gap-2.5">
-                          {c && (
-                            <div
-                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                              style={{ backgroundColor: `hsl(${c.photoHue}, 65%, 45%)` }}
-                            >
-                              {c.name.charAt(0)}
+                      <div key={p.id} className="p-4 space-y-3 hover:bg-muted/30 transition-colors">
+                        {/* Row 1: Customer avatar + name + receipt + amount */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            {c && (
+                              <div
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                                style={{ backgroundColor: `hsl(${c.photoHue}, 65%, 45%)` }}
+                              >
+                                {c.name.charAt(0)}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-sm text-foreground">{c?.name ?? "Unknown"}</div>
+                              <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                                {c?.id} • {p.loanId} • EMI #{emi?.emiNo ?? "—"}
+                              </div>
                             </div>
-                          )}
-                          <div>
-                            <div className="font-semibold text-foreground">{c?.name}</div>
-                            <div className="text-[10px] text-muted-foreground font-mono">
-                              {p.receiptId} • {p.loanId}
-                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-mono font-bold text-emerald-600 text-base">+{inr(p.amount)}</div>
+                            <div className="text-[10px] text-muted-foreground">{fmtDateTime(p.date)}</div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="font-mono font-bold text-emerald-600">+{inr(p.amount)}</div>
-                          <div className="text-[10px] text-muted-foreground flex items-center gap-1 justify-end">
-                            <Badge variant="outline" className="text-[9px]">{p.method}</Badge>
-                            <span>{fmtDateTime(p.date)}</span>
+
+                        {/* Row 2: Itemized split + method + receipt */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-lg bg-muted/40 border border-border/60 text-xs">
+                          <div>
+                            <p className="text-[9px] uppercase text-muted-foreground font-semibold">Principal Paid</p>
+                            <p className="font-mono font-bold text-foreground mt-0.5">{inr(pPaid)}</p>
                           </div>
+                          <div>
+                            <p className="text-[9px] uppercase text-muted-foreground font-semibold">Interest Paid</p>
+                            <p className="font-mono font-bold text-foreground mt-0.5">{inr(iPaid)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] uppercase text-muted-foreground font-semibold">Method</p>
+                            <Badge variant="outline" className="text-[9px] mt-0.5">{p.method}</Badge>
+                          </div>
+                          <div>
+                            <p className="text-[9px] uppercase text-muted-foreground font-semibold">Receipt No.</p>
+                            <p className="font-mono text-[10px] font-semibold text-foreground mt-0.5 truncate">{p.receiptId ?? "—"}</p>
+                          </div>
+                        </div>
+
+                        {/* Row 3: Loan summary + View Receipt */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="text-muted-foreground">
+                            {loan && (
+                              <span>
+                                {inr(loan.principal)} loan • {loan.interestRate}% {loan.interestMethod} • {loan.tenure} EMIs ({loan.frequency})
+                              </span>
+                            )}
+                          </div>
+                          {p.receiptId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-[10px] px-3 cursor-pointer"
+                              onClick={() => setReceiptModalId(p.receiptId ?? null)}
+                            >
+                              <Printer className="h-3 w-3 mr-1" />
+                              View Receipt
+                            </Button>
+                          )}
                         </div>
                       </div>
                     );
@@ -1026,6 +1081,13 @@ function CollectionPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Receipt modal for Today Log */}
+          <PaymentReceiptModal
+            open={!!receiptModalId}
+            onOpenChange={(open) => { if (!open) setReceiptModalId(null); }}
+            receiptId={receiptModalId}
+          />
         </TabsContent>
 
         {/* ==================================================================== */}

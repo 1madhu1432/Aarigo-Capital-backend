@@ -1,5 +1,0 @@
-feat: full itemized details in payment collection and printable receipts
-
-- Live Payment Allocation Split in Collection form: Real-time calculation of Principal Component Paid, Interest Component Paid, and Outstanding Principal post-payment.
-- PaymentReceiptModal: Comprehensive printable A4 payment receipt with institution branding, customer & loan details, itemized financial allocation table (Principal Paid, Interest Paid, Foreclosure Charges, Total Amount Received, UTR ref), post-payment portfolio balance summary, and physical signature blocks for Customer and Authorized Signatory.
-- Integrated PaymentReceiptModal into Receipts page and Collection success screen.
