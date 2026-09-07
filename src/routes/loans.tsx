@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/loans")({
   component: LoansRouteComponent,
@@ -42,14 +43,19 @@ function LoansPage() {
   const { loans, customers, emis, payments } = useStore();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [frequencyFilter, setFrequencyFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("active");
   const [printLoan, setPrintLoan] = useState<(typeof loans)[0] | null>(null);
   const [earlyCloseLoan, setEarlyCloseLoan] = useState<(typeof loans)[0] | null>(null);
 
   const filtered = useMemo(() => {
-    if (!query) return loans;
+    let result = loans;
+    if (frequencyFilter !== "all") {
+      result = result.filter((l) => l.frequency === frequencyFilter);
+    }
+    if (!query) return result;
     const q = query.toLowerCase();
-    return loans.filter((l) => {
+    return result.filter((l) => {
       const c = customers.find((cust) => cust.id === l.customerId);
       const matchesQ =
         l.id.toLowerCase().includes(q) ||
@@ -57,7 +63,7 @@ function LoansPage() {
         l.customerId.toLowerCase().includes(q);
       return matchesQ;
     });
-  }, [loans, customers, query]);
+  }, [loans, customers, query, frequencyFilter]);
 
   const byStatus = {
     active: filtered.filter((l) => l.status === "Active"),
@@ -198,23 +204,40 @@ function LoansPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search by loan ID, customer name..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="pl-9 text-xs h-9"
-        />
-        {query && (
-          <button
-            onClick={() => setQuery("")}
-            className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* Search and Frequency Filter */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="relative flex-1 max-w-sm w-full">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by loan ID, customer name..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9 text-xs h-9"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Frequency:</span>
+          <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+            <SelectTrigger className="h-9 text-xs w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
+              <SelectItem value="Daily" className="text-xs">Daily (Day)</SelectItem>
+              <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+              <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Tabs */}

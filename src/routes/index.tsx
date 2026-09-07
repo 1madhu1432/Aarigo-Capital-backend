@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Banknote,
@@ -21,11 +21,15 @@ import {
   Footprints,
   Coins,
   Percent,
+  Filter,
+  RotateCcw,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
-import { inr, inrShort, fmtDate, fmtDateTime } from "@/lib/format";
+import { inr, inrShort, fmtDate, fmtDateTime, addDays } from "@/lib/format";
 import { computeAmortizationSchedule } from "@/utils/amortization";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -38,16 +42,38 @@ function DashboardPage() {
   const { customers, loans, emis, payments, visits, today } = useStore();
   const navigate = useNavigate();
 
-  // Financial calculations
-  const activeLoans = useMemo(() => loans.filter((l) => l.status === "Active"), [loans]);
-  const overdueLoans = useMemo(() => loans.filter((l) => l.status === "Overdue"), [loans]);
+  // Day & Frequency Filter state
+  const [selectedDay, setSelectedDay] = useState<string>(today);
+  const [frequencyFilter, setFrequencyFilter] = useState<string>("all");
+
+  // Filtered dataset according to selected repayment frequency
+  const filteredLoans = useMemo(() => {
+    if (frequencyFilter === "all") return loans;
+    return loans.filter((l) => l.frequency === frequencyFilter);
+  }, [loans, frequencyFilter]);
+
+  const filteredLoanIds = useMemo(() => new Set(filteredLoans.map((l) => l.id)), [filteredLoans]);
+
+  const filteredEmis = useMemo(() => {
+    if (frequencyFilter === "all") return emis;
+    return emis.filter((e) => filteredLoanIds.has(e.loanId));
+  }, [emis, filteredLoanIds]);
+
+  const filteredPayments = useMemo(() => {
+    if (frequencyFilter === "all") return payments;
+    return payments.filter((p) => filteredLoanIds.has(p.loanId));
+  }, [payments, filteredLoanIds]);
+
+  // Financial calculations on filtered dataset
+  const activeLoans = useMemo(() => filteredLoans.filter((l) => l.status === "Active"), [filteredLoans]);
+  const overdueLoans = useMemo(() => filteredLoans.filter((l) => l.status === "Overdue"), [filteredLoans]);
   
   const portfolioOutstanding = useMemo(() => {
     let principal = 0;
     let interest = 0;
     let total = 0;
 
-    loans
+    filteredLoans
       .filter((l) => l.status !== "Closed" && l.status !== "Closed Early")
       .forEach((l) => {
         const sched = computeAmortizationSchedule(l, emis, payments);
@@ -66,27 +92,61 @@ function DashboardPage() {
       interest,
       total,
     };
-  }, [loans, emis, payments]);
+  }, [filteredLoans, emis, payments]);
 
   const totalOutstanding = portfolioOutstanding.total;
 
-  const dueTodayEmis = useMemo(() => emis.filter((e) => e.dueDate === today), [emis, today]);
-  const totalDueToday = useMemo(() => dueTodayEmis.reduce((sum, e) => sum + e.amount, 0), [dueTodayEmis]);
+  // Day calculations
+  const isToday = selectedDay === today;
+  const isYesterday = selectedDay === addDays(today, -1);
+  const isTomorrow = selectedDay === addDays(today, 1);
+  const dayNameLabel = isToday
+    ? "Today's"
+    : isYesterday
+    ? "Yesterday's"
+    : isTomorrow
+    ? "Tomorrow's"
+    : `${fmtDate(selectedDay)}`;
 
-  const todayPayments = useMemo(() => payments.filter((p) => p.date.slice(0, 10) === today), [payments, today]);
-  const totalCollectedToday = useMemo(() => todayPayments.reduce((sum, p) => sum + p.amount, 0), [todayPayments]);
+  const dueSelectedDayEmis = useMemo(
+    () => filteredEmis.filter((e) => e.dueDate === selectedDay),
+    [filteredEmis, selectedDay]
+  );
+  const totalDueSelectedDay = useMemo(
+    () => dueSelectedDayEmis.reduce((sum, e) => sum + e.amount, 0),
+    [dueSelectedDayEmis]
+  );
 
-  const pendingToday = Math.max(0, totalDueToday - totalCollectedToday);
+  const selectedDayPayments = useMemo(
+    () => filteredPayments.filter((p) => p.date.slice(0, 10) === selectedDay),
+    [filteredPayments, selectedDay]
+  );
+  const totalCollectedSelectedDay = useMemo(
+    () => selectedDayPayments.reduce((sum, p) => sum + p.amount, 0),
+    [selectedDayPayments]
+  );
 
-  // Month-to-date calculation
-  const currentMonthPrefix = today.slice(0, 7);
-  const monthPayments = useMemo(() => payments.filter((p) => p.date.slice(0, 7) === currentMonthPrefix), [payments, currentMonthPrefix]);
-  const totalCollectedMonth = useMemo(() => monthPayments.reduce((sum, p) => sum + p.amount, 0), [monthPayments]);
+  const pendingSelectedDay = Math.max(0, totalDueSelectedDay - totalCollectedSelectedDay);
 
-  const overdueEmis = useMemo(() => emis.filter((e) => e.status === "Overdue"), [emis]);
-  const totalOverdueAmount = useMemo(() => overdueEmis.reduce((sum, e) => sum + (e.amount - e.paid), 0), [overdueEmis]);
+  // Month-to-date calculation for selected day's month
+  const currentMonthPrefix = selectedDay.slice(0, 7);
+  const monthPayments = useMemo(
+    () => filteredPayments.filter((p) => p.date.slice(0, 7) === currentMonthPrefix),
+    [filteredPayments, currentMonthPrefix]
+  );
+  const totalCollectedMonth = useMemo(
+    () => monthPayments.reduce((sum, p) => sum + p.amount, 0),
+    [monthPayments]
+  );
 
-  const collectionPct = totalDueToday > 0 ? Math.min(100, Math.round((totalCollectedToday / totalDueToday) * 100)) : 0;
+  const overdueEmis = useMemo(() => filteredEmis.filter((e) => e.status === "Overdue"), [filteredEmis]);
+  const totalOverdueAmount = useMemo(
+    () => overdueEmis.reduce((sum, e) => sum + (e.amount - e.paid), 0),
+    [overdueEmis]
+  );
+
+  const collectionPct =
+    totalDueSelectedDay > 0 ? Math.min(100, Math.round((totalCollectedSelectedDay / totalDueSelectedDay) * 100)) : 0;
 
   // Overdue customers ranked
   const topOverdueBorrowers = useMemo(() => {
@@ -154,6 +214,93 @@ function DashboardPage() {
         </div>
       </div>
 
+      {/* Day & Frequency Filter Bar */}
+      <div className="bg-card border border-border/80 rounded-xl p-3 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mr-1">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span>Day Filter:</span>
+          </div>
+
+          <div className="inline-flex rounded-lg border border-border/80 p-0.5 bg-muted/40">
+            <button
+              type="button"
+              onClick={() => setSelectedDay(today)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isToday
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDay(addDays(today, -1))}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isYesterday
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Yesterday
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDay(addDays(today, 1))}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isTomorrow
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Tomorrow
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="date"
+              value={selectedDay}
+              onChange={(e) => {
+                if (e.target.value) setSelectedDay(e.target.value);
+              }}
+              className="h-8 text-xs w-[140px] px-2 bg-background"
+            />
+            {!isToday && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedDay(today)}
+                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Reset to today"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Reset
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Filter className="h-3.5 w-3.5" />
+            <span>Repayment Frequency:</span>
+          </div>
+          <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+            <SelectTrigger className="h-8 text-xs w-[145px] bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
+              <SelectItem value="Daily" className="text-xs">Daily (Day)</SelectItem>
+              <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+              <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Overdue Warning Alert if any */}
       {overdueEmis.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-lg border border-destructive/30 bg-destructive/5 text-xs text-destructive gap-2">
@@ -177,58 +324,64 @@ function DashboardPage() {
       <div className="space-y-3 md:space-y-4">
         {/* Row 1: Daily Recovery Operations */}
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          {/* KPI 1: Today's Collection */}
+          {/* KPI 1: Day's Collection */}
           <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
             <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-xs font-medium text-muted-foreground">Today's Collected</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                {isToday ? "Today's Collected" : `${dayNameLabel} Collected`}
+              </CardTitle>
               <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
                 <Banknote className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent className="p-4 pt-0">
               <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-                {inr(totalCollectedToday)}
+                {inr(totalCollectedSelectedDay)}
               </div>
               <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1.5">
-                <span>Target: {inr(totalDueToday)}</span>
+                <span>Target: {inr(totalDueSelectedDay)}</span>
                 <span className="font-semibold text-emerald-600">{collectionPct}%</span>
               </div>
               <Progress value={collectionPct} className="h-1.5 mt-1.5 bg-muted" />
             </CardContent>
           </Card>
 
-          {/* KPI 2: Today's Due */}
+          {/* KPI 2: Day's Due */}
           <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
             <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-xs font-medium text-muted-foreground">Today's Due</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                {isToday ? "Today's Due" : `${dayNameLabel} Due`}
+              </CardTitle>
               <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-600">
                 <Clock className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent className="p-4 pt-0">
               <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-                {inr(totalDueToday)}
+                {inr(totalDueSelectedDay)}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Across <span className="font-semibold text-foreground">{dueTodayEmis.length}</span> borrower EMIs
+                Across <span className="font-semibold text-foreground">{dueSelectedDayEmis.length}</span> borrower EMIs
               </p>
             </CardContent>
           </Card>
 
-          {/* KPI 3: Pending Today */}
+          {/* KPI 3: Pending for Day */}
           <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
             <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-xs font-medium text-muted-foreground">Pending Today</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                {isToday ? "Pending Today" : `Pending (${dayNameLabel})`}
+              </CardTitle>
               <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500/10 text-sky-600">
                 <Calendar className="h-4 w-4" />
               </div>
             </CardHeader>
             <CardContent className="p-4 pt-0">
               <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-                {inr(pendingToday)}
+                {inr(pendingSelectedDay)}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Remaining to close today
+                {isToday ? "Remaining to reach target" : `Uncollected for ${dayNameLabel}`}
               </p>
             </CardContent>
           </Card>
@@ -246,7 +399,7 @@ function DashboardPage() {
                 {inr(totalCollectedMonth)}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
-                {monthPayments.length} receipts this month
+                {monthPayments.length} receipts in {new Date(selectedDay).toLocaleDateString("en-IN", { month: "short" })}
               </p>
             </CardContent>
           </Card>
@@ -370,9 +523,12 @@ function DashboardPage() {
         <Card className="lg:col-span-2 shadow-xs border-border">
           <CardHeader className="p-4 md:p-5 flex flex-row items-center justify-between border-b border-border/60">
             <div>
-              <CardTitle className="text-sm md:text-base font-semibold">Today's EMIs to Collect</CardTitle>
+              <CardTitle className="text-sm md:text-base font-semibold">
+                {isToday ? "Today's EMIs to Collect" : `EMIs to Collect (${dayNameLabel})`}
+              </CardTitle>
               <CardDescription className="text-xs text-muted-foreground">
-                Borrowers with repayments scheduled for today ({fmtDate(today)})
+                Borrowers with repayments scheduled for {isToday ? "today" : dayNameLabel} ({fmtDate(selectedDay)})
+                {frequencyFilter !== "all" && ` • ${frequencyFilter} loans only`}
               </CardDescription>
             </div>
             <Link to="/emi" className="text-xs font-medium text-primary hover:underline flex items-center gap-1">
@@ -380,13 +536,13 @@ function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="p-0">
-            {dueTodayEmis.length === 0 ? (
+            {dueSelectedDayEmis.length === 0 ? (
               <div className="p-8 text-center text-xs text-muted-foreground">
-                No EMIs are due today.
+                No EMIs are due on {isToday ? "today" : dayNameLabel} ({fmtDate(selectedDay)}).
               </div>
             ) : (
               <div className="divide-y divide-border/60">
-                {dueTodayEmis.slice(0, 6).map((e) => {
+                {dueSelectedDayEmis.slice(0, 8).map((e) => {
                   const customer = customers.find((c) => c.id === e.customerId);
                   const isPaid = e.status === "Paid";
                   const isPartial = e.status === "Partial";

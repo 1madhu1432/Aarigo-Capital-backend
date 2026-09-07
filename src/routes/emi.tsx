@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Clock, Search, X, Banknote, AlertTriangle, CheckCircle2, Calendar } from "lucide-react";
+import { Clock, Search, X, Banknote, AlertTriangle, CheckCircle2, Calendar, RotateCcw } from "lucide-react";
 import { useStore } from "@/store/app-store";
-import { inr, fmtDate, todayISO, daysBetween } from "@/lib/format";
+import { inr, fmtDate, todayISO, daysBetween, addDays } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,7 +21,17 @@ function EmiPage() {
   const today = todayISO();
   const [query, setQuery] = useState("");
   const [frequencyFilter, setFrequencyFilter] = useState("all");
+  const [dayFilter, setDayFilter] = useState<"all" | "today" | "yesterday" | "tomorrow" | "custom">("all");
+  const [selectedDate, setSelectedDate] = useState<string>(today);
   const [activeTab, setActiveTab] = useState("due-today");
+
+  const activeDate = useMemo(() => {
+    if (dayFilter === "today") return today;
+    if (dayFilter === "yesterday") return addDays(today, -1);
+    if (dayFilter === "tomorrow") return addDays(today, 1);
+    if (dayFilter === "custom") return selectedDate;
+    return null;
+  }, [dayFilter, today, selectedDate]);
 
   const emiWithData = useMemo(() =>
     emis.map((e) => {
@@ -36,6 +46,7 @@ function EmiPage() {
     const q = query.toLowerCase();
     return emiWithData.filter(({ e, cust, loan }) => {
       if (frequencyFilter !== "all" && loan?.frequency !== frequencyFilter) return false;
+      if (activeDate && e.dueDate !== activeDate) return false;
       if (!q) return true;
       return (
         e.id.toLowerCase().includes(q) ||
@@ -45,10 +56,13 @@ function EmiPage() {
         false
       );
     });
-  }, [emiWithData, query, frequencyFilter]);
+  }, [emiWithData, query, frequencyFilter, activeDate]);
 
   const byTab = {
-    "due-today": filtered.filter(({ e }) => e.dueDate === today && e.paid < e.amount),
+    "due-today": filtered.filter(({ e }) => {
+      const targetDate = activeDate ?? today;
+      return e.dueDate === targetDate && e.paid < e.amount;
+    }),
     upcoming: filtered.filter(({ e }) => e.status === "Upcoming"),
     partial: filtered.filter(({ e }) => e.status === "Partial"),
     overdue: filtered.filter(({ e }) => e.status === "Overdue"),
@@ -95,8 +109,14 @@ function EmiPage() {
     );
   };
 
+  const dueTabLabel = activeDate
+    ? activeDate === today
+      ? "Due Today"
+      : `Due (${fmtDate(activeDate)})`
+    : "Due Today";
+
   const tabConfig = [
-    { key: "due-today", label: "Due Today", icon: Clock, count: byTab["due-today"].length, urgent: byTab["due-today"].length > 0 },
+    { key: "due-today", label: dueTabLabel, icon: Clock, count: byTab["due-today"].length, urgent: byTab["due-today"].length > 0 },
     { key: "overdue", label: "Overdue", icon: AlertTriangle, count: byTab.overdue.length, urgent: byTab.overdue.length > 0 },
     { key: "partial", label: "Partial", icon: Calendar, count: byTab.partial.length, urgent: false },
     { key: "upcoming", label: "Upcoming", icon: Calendar, count: byTab.upcoming.length, urgent: false },
@@ -123,14 +143,14 @@ function EmiPage() {
           {byTab["due-today"].length > 0 && (
             <div className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30">
               <Clock className="h-3 w-3" />
-              {byTab["due-today"].length} Due Today
+              {byTab["due-today"].length} {dueTabLabel}
             </div>
           )}
         </div>
       </div>
 
-      {/* Search & Frequency Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+      {/* Search, Frequency & Day Filter */}
+      <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between">
         <div className="relative flex-1 max-w-sm w-full">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -146,19 +166,97 @@ function EmiPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Frequency:</span>
-          <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
-            <SelectTrigger className="h-9 text-xs w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
-              <SelectItem value="Daily" className="text-xs">Daily</SelectItem>
-              <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
-              <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Day Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Due Day:</span>
+            <div className="inline-flex rounded-md border border-border/80 p-0.5 bg-muted/30">
+              <button
+                type="button"
+                onClick={() => setDayFilter("all")}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "all" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDayFilter("today");
+                  setSelectedDate(today);
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "today" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDayFilter("yesterday");
+                  setSelectedDate(addDays(today, -1));
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "yesterday" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Yesterday
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDayFilter("tomorrow");
+                  setSelectedDate(addDays(today, 1));
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "tomorrow" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Tomorrow
+              </button>
+            </div>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setSelectedDate(e.target.value);
+                  setDayFilter("custom");
+                }
+              }}
+              className="h-9 text-xs w-36"
+            />
+            {dayFilter !== "all" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDayFilter("all")}
+                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Clear day filter"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+
+          {/* Frequency Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Frequency:</span>
+            <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+              <SelectTrigger className="h-9 text-xs w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
+                <SelectItem value="Daily" className="text-xs">Daily (Day)</SelectItem>
+                <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+                <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
