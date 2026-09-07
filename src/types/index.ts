@@ -161,6 +161,9 @@ export interface Emi {
   paid: number;
   status: EmiStatus;
   remarks?: string | undefined;
+  lateFee?: number | undefined;
+  lateFeePaid?: number | undefined;
+  lateFeeWaived?: boolean | undefined;
 }
 
 export interface Payment {
@@ -183,6 +186,8 @@ export interface Payment {
   outstandingPrincipal?: number | undefined;
   finalClosureAmount?: number | undefined;
   bankTransactionId?: string | undefined;
+  lateFeePaid?: number | undefined;
+  lateFeeWaived?: boolean | undefined;
 }
 
 export interface Receipt {
@@ -194,6 +199,7 @@ export interface Receipt {
   method: PaymentMethod;
   date: string;
   status: "Issued" | "Cancelled";
+  lateFeePaid?: number | undefined;
 }
 
 export interface Visit {

@@ -33,6 +33,9 @@ export function PaymentReceiptModal({ open, onOpenChange, receiptId }: PaymentRe
   const totalPaid = receipt.amount;
   const isEarlyClosure = Boolean(payment?.isEarlyClosure || loan.status === "Closed Early");
 
+  const lateFeePaid = payment?.lateFeePaid ?? receipt.lateFeePaid ?? 0;
+  const emiOnlyPaid = Math.max(0, totalPaid - lateFeePaid);
+
   let principalPaid = 0;
   let interestPaid = 0;
   let earlyClosureCharge = 0;
@@ -42,12 +45,12 @@ export function PaymentReceiptModal({ open, onOpenChange, receiptId }: PaymentRe
     principalPaid = Math.max(0, totalPaid - earlyClosureCharge);
     interestPaid = 0; // Waived on early closure
   } else if (targetRow) {
-    const ratio = targetRow.emiAmount > 0 ? totalPaid / targetRow.emiAmount : 1;
+    const ratio = targetRow.emiAmount > 0 ? emiOnlyPaid / targetRow.emiAmount : 1;
     interestPaid = Math.round(targetRow.interestComponent * Math.min(1, ratio));
-    principalPaid = Math.max(0, totalPaid - interestPaid);
+    principalPaid = Math.max(0, emiOnlyPaid - interestPaid);
   } else {
-    interestPaid = Math.round(totalPaid * 0.15);
-    principalPaid = totalPaid - interestPaid;
+    interestPaid = Math.round(emiOnlyPaid * 0.15);
+    principalPaid = emiOnlyPaid - interestPaid;
   }
 
   // All loan payments for this loan (non-reversed), sorted by date
@@ -233,6 +236,15 @@ export function PaymentReceiptModal({ open, onOpenChange, receiptId }: PaymentRe
                   </td>
                   <td className="p-2.5 text-right font-bold text-foreground">{inr(interestPaid)}</td>
                 </tr>
+                {lateFeePaid > 0 && (
+                  <tr>
+                    <td className="p-2.5 font-sans text-destructive font-semibold">
+                      Late Payment Penalty / Charges
+                      <span className="block text-[10px] text-muted-foreground font-sans">Overdue delay charges collected</span>
+                    </td>
+                    <td className="p-2.5 text-right font-bold text-destructive font-mono">{inr(lateFeePaid)}</td>
+                  </tr>
+                )}
                 {earlyClosureCharge > 0 && (
                   <tr>
                     <td className="p-2.5 font-sans text-purple-700 dark:text-purple-400 font-semibold">

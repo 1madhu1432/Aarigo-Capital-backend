@@ -429,6 +429,8 @@ export function EmiSchedulePrintModal({
                           {r.paymentDetails && (
                             <span className="text-[9px] text-slate-500 font-mono">
                               Paid {inr(r.paidAmount)} on {fmtDate(r.paymentDetails.date)} • {r.paymentDetails.method} • Ref: {r.paymentDetails.receiptId}
+                              {r.lateFeePaid && r.lateFeePaid > 0 ? ` (Late Fee: ${inr(r.lateFeePaid)})` : ""}
+                              {r.lateFeeWaived ? " (Late Fee Waived)" : ""}
                             </span>
                           )}
                         </div>

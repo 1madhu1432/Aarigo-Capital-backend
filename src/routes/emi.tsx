@@ -8,15 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { calculateLateFee } from "@/utils/amortization";
 
 export const Route = createFileRoute("/emi")({
   component: EmiPage,
 });
 
 function EmiPage() {
-  const { emis, customers, loans } = useStore();
+  const { emis, customers, loans, settings } = useStore();
   const navigate = useNavigate();
   const today = todayISO();
   const [query, setQuery] = useState("");
@@ -69,9 +71,22 @@ function EmiPage() {
     paid: filtered.filter(({ e }) => e.status === "Paid"),
   };
 
+  const totalOverdueLateFees = useMemo(() => {
+    return byTab.overdue.reduce((sum, { e }) => {
+      const calc = calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived));
+      return sum + calc.lateFeeAmount;
+    }, 0);
+  }, [byTab.overdue, today, settings]);
+
   const EmiRow = ({ e, cust, loan }: (typeof emiWithData)[0]) => {
     const remaining = Math.max(0, e.amount - e.paid);
-    const daysOverdue = e.status === "Overdue" ? daysBetween(e.dueDate, today) : 0;
+    const isPastDue = (e.status === "Overdue" || e.status === "Partial") && e.dueDate < today;
+    const daysOverdue = isPastDue ? daysBetween(e.dueDate, today) : 0;
+    const lateFeeCalc = isPastDue
+      ? calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived))
+      : null;
+    const lateFeeAmount = lateFeeCalc?.lateFeeAmount ?? 0;
+    const totalDue = remaining + lateFeeAmount;
 
     return (
       <tr className="hover:bg-muted/30 transition-colors">
@@ -85,12 +100,28 @@ function EmiPage() {
         <td className="p-3 font-mono text-[10px]">{e.loanId}</td>
         <td className="p-3 text-center text-xs">{e.emiNo}</td>
         <td className="p-3 whitespace-nowrap text-xs">
-          <div className={e.status === "Overdue" ? "text-destructive font-medium" : ""}>{fmtDate(e.dueDate)}</div>
-          {daysOverdue > 0 && <div className="text-[10px] text-destructive">{daysOverdue}d overdue</div>}
+          <div className={isPastDue ? "text-destructive font-medium" : ""}>{fmtDate(e.dueDate)}</div>
+          {daysOverdue > 0 && (
+            <div className="text-[10px] text-destructive flex items-center gap-1 mt-0.5">
+              <span>{daysOverdue}d overdue</span>
+              {lateFeeAmount > 0 && (
+                <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">
+                  +{inr(lateFeeAmount)} fee
+                </Badge>
+              )}
+            </div>
+          )}
         </td>
         <td className="p-3 text-right font-mono text-xs">{inr(e.amount)}</td>
         <td className="p-3 text-right font-mono text-xs text-emerald-600">{inr(e.paid)}</td>
-        <td className="p-3 text-right font-mono text-xs">{inr(remaining)}</td>
+        <td className="p-3 text-right font-mono text-xs">
+          <div className="font-bold">{inr(remaining)}</div>
+          {lateFeeAmount > 0 && (
+            <div className="text-[10px] text-destructive font-medium">
+              +{inr(lateFeeAmount)} fee ({inr(totalDue)})
+            </div>
+          )}
+        </td>
         <td className="p-3"><StatusBadge status={e.status} /></td>
         <td className="p-3">
           {e.status !== "Paid" && (
@@ -135,9 +166,12 @@ function EmiPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           {byTab.overdue.length > 0 && (
-            <div className="text-[10px] text-destructive font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-destructive/10 border border-destructive/30">
+            <div className="text-[10px] text-destructive font-semibold flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-destructive/10 border border-destructive/30">
               <AlertTriangle className="h-3 w-3" />
-              {byTab.overdue.length} Overdue
+              <span>{byTab.overdue.length} Overdue</span>
+              {totalOverdueLateFees > 0 && (
+                <span className="font-mono font-bold">({inr(totalOverdueLateFees)} Late Charges)</span>
+              )}
             </div>
           )}
           {byTab["due-today"].length > 0 && (

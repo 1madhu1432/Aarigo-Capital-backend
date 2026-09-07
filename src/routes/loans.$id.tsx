@@ -25,7 +25,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { EarlyCloseDialog } from "@/components/loans/EarlyCloseDialog";
 import { EmiSchedulePrintModal } from "@/components/loans/EmiSchedulePrintModal";
-import { computeAmortizationSchedule } from "@/utils/amortization";
+import { computeAmortizationSchedule, calculateLateFee } from "@/utils/amortization";
 
 export const Route = createFileRoute("/loans/$id")({
   component: LoanDetailPage,
@@ -301,24 +301,42 @@ function LoanDetailPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/60 bg-muted/30">
-                    {["No.", "Due Date", "Amount", "Principal Component", "Interest", "Remaining", "Status", "Remarks"].map((h) => (
-                      <th key={h} className={`p-3 text-[10px] text-muted-foreground font-medium ${h === "Amount" || h === "Principal Component" || h === "Interest" || h === "Remaining" ? "text-right" : "text-left"}`}>{h}</th>
+                    {["No.", "Due Date", "Amount", "Principal Component", "Interest", "Remaining", "Late Fee", "Status", "Remarks"].map((h) => (
+                      <th key={h} className={`p-3 text-[10px] text-muted-foreground font-medium ${h === "Amount" || h === "Principal Component" || h === "Interest" || h === "Remaining" || h === "Late Fee" ? "text-right" : "text-left"}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {(sched?.rows ?? []).map((r) => (
-                    <tr key={r.emiId} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-3 font-mono font-bold">{r.emiNo}</td>
-                      <td className="p-3 font-mono">{fmtDate(r.dueDate)}</td>
-                      <td className="p-3 text-right font-mono font-bold">{inr(r.emiAmount)}</td>
-                      <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.principalComponent)}</td>
-                      <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.interestComponent)}</td>
-                      <td className="p-3 text-right font-mono font-semibold">{inr(r.remainingAmount)}</td>
-                      <td className="p-3"><StatusBadge status={r.status} /></td>
-                      <td className="p-3 text-muted-foreground text-[11px] truncate max-w-[150px]">{r.remarks}</td>
-                    </tr>
-                  ))}
+                  {(sched?.rows ?? []).map((r) => {
+                    const isUnpaid = r.status === "Overdue" || r.status === "Pending" || r.status === "Partial" || r.status === "Due";
+                    const lateCalc = isUnpaid
+                      ? calculateLateFee(r.dueDate, new Date().toISOString(), settings, r.lateFeeWaived)
+                      : null;
+
+                    return (
+                      <tr key={r.emiId} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-3 font-mono font-bold">{r.emiNo}</td>
+                        <td className="p-3 font-mono">{fmtDate(r.dueDate)}</td>
+                        <td className="p-3 text-right font-mono font-bold">{inr(r.emiAmount)}</td>
+                        <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.principalComponent)}</td>
+                        <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.interestComponent)}</td>
+                        <td className="p-3 text-right font-mono font-semibold">{inr(r.remainingAmount)}</td>
+                        <td className="p-3 text-right font-mono text-xs">
+                          {r.lateFeePaid && r.lateFeePaid > 0 ? (
+                            <span className="text-emerald-600 font-semibold">Paid {inr(r.lateFeePaid)}</span>
+                          ) : r.lateFeeWaived ? (
+                            <span className="text-muted-foreground line-through text-[11px]">Waived</span>
+                          ) : lateCalc && lateCalc.lateFeeAmount > 0 ? (
+                            <span className="text-destructive font-bold">+{inr(lateCalc.lateFeeAmount)}</span>
+                          ) : (
+                            <span className="text-muted-foreground/60">—</span>
+                          )}
+                        </td>
+                        <td className="p-3"><StatusBadge status={r.status} /></td>
+                        <td className="p-3 text-muted-foreground text-[11px] truncate max-w-[150px]">{r.remarks}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

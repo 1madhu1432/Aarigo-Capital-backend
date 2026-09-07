@@ -23,7 +23,7 @@ import {
 import { collectionPriorityScore, resolveCurrentEmi, useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, todayISO, addDays } from "@/lib/format";
 import type { PaymentMethod, Receipt, VisitStatus } from "@/types";
-import { computeAmortizationSchedule } from "@/utils/amortization";
+import { computeAmortizationSchedule, calculateLateFee } from "@/utils/amortization";
 import { PaymentReceiptModal } from "@/components/loans/PaymentReceiptModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +78,7 @@ function CollectionPage() {
   const [payMethod, setPayMethod] = useState<PaymentMethod>("Cash");
   const [payNotes, setPayNotes] = useState<string>("");
   const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
+  const [waiveLateFee, setWaiveLateFee] = useState<boolean>(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -147,10 +148,28 @@ function CollectionPage() {
 
   const targetRemaining = targetEmi ? Math.max(0, targetEmi.amount - targetEmi.paid) : 0;
 
+  const lateFeeCalc = useMemo(() => {
+    if (!targetEmi || targetEmi.dueDate >= today) {
+      return {
+        daysOverdue: 0,
+        gracePeriodDays: settings.gracePeriodDays ?? 0,
+        chargeableDays: 0,
+        lateFeePerDay: settings.lateFeePerDay ?? 0,
+        lateFeeAmount: 0,
+        isWaived: false,
+      };
+    }
+    return calculateLateFee(targetEmi.dueDate, today, settings, waiveLateFee || Boolean(targetEmi.lateFeeWaived));
+  }, [targetEmi, today, settings, waiveLateFee]);
+
+  const accruedLateFee = lateFeeCalc.lateFeeAmount;
+  const totalDueWithLateFee = targetRemaining + accruedLateFee;
+  const totalPayableTarget = accruedLateFee > 0 && !waiveLateFee ? totalDueWithLateFee : targetRemaining;
+
   const parsedAmount = parseFloat(payAmount);
   const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
-  const isOverpayment = isValidAmount && parsedAmount > targetRemaining;
-  const willPartial = isValidAmount && parsedAmount < targetRemaining;
+  const isOverpayment = isValidAmount && parsedAmount > totalPayableTarget;
+  const willPartial = isValidAmount && parsedAmount < totalPayableTarget;
 
   const [receiptModalId, setReceiptModalId] = useState<string | null>(null);
 
@@ -165,18 +184,28 @@ function CollectionPage() {
   }, [loanSched, targetEmi]);
 
   const itemizedSplit = useMemo(() => {
-    if (!isValidAmount || !targetRow) return { pComp: 0, iComp: 0 };
-    const ratio = targetRow.emiAmount > 0 ? parsedAmount / targetRow.emiAmount : 1;
+    if (!isValidAmount || !targetRow) return { pComp: 0, iComp: 0, lateFeePaid: 0 };
+
+    let lateFeeAllocated = 0;
+    let emiAvailable = parsedAmount;
+
+    if (accruedLateFee > 0 && !waiveLateFee) {
+      lateFeeAllocated = Math.min(accruedLateFee, parsedAmount);
+      emiAvailable = Math.max(0, parsedAmount - lateFeeAllocated);
+    }
+
+    const ratio = targetRow.emiAmount > 0 ? emiAvailable / targetRow.emiAmount : 1;
     const iComp = Math.round(targetRow.interestComponent * Math.min(1, ratio));
-    const pComp = Math.max(0, parsedAmount - iComp);
-    return { pComp, iComp };
-  }, [isValidAmount, targetRow, parsedAmount]);
+    const pComp = Math.max(0, emiAvailable - iComp);
+    return { pComp, iComp, lateFeePaid: lateFeeAllocated };
+  }, [isValidAmount, targetRow, parsedAmount, accruedLateFee, waiveLateFee]);
 
   const handleSelectCustomer = useCallback((id: string) => {
     setSelectedCustomerId(id);
     setSelectedLoanId("");
     setSelectedEmiId("");
     setPayAmount("");
+    setWaiveLateFee(false);
     setLastReceipt(null);
     setStep(2);
     setSearchQuery("");
@@ -205,6 +234,8 @@ function CollectionPage() {
       method: payMethod,
       notes: payNotes,
       excessAction,
+      lateFeePaid: itemizedSplit.lateFeePaid,
+      lateFeeWaived: waiveLateFee,
     });
 
     setLastReceipt(res.receipt);
@@ -212,7 +243,7 @@ function CollectionPage() {
     setShowOverpayDialog(false);
     setStep(5);
     setIsSubmitting(false);
-  }, [selectedCustomer, activeLoan, targetEmi, payAmount, payMethod, payNotes, excessAction, recordPayment]);
+  }, [selectedCustomer, activeLoan, targetEmi, payAmount, payMethod, payNotes, excessAction, itemizedSplit.lateFeePaid, waiveLateFee, recordPayment]);
 
   const handleSaveNoPaymentVisit = useCallback(() => {
     if (!selectedCustomer || !activeLoan) return;
@@ -257,6 +288,7 @@ function CollectionPage() {
     setSelectedEmiId("");
     setPayAmount("");
     setPayNotes("");
+    setWaiveLateFee(false);
     setLastReceipt(null);
     setSearchQuery("");
   };
@@ -580,9 +612,19 @@ function CollectionPage() {
                               <span className="font-mono font-semibold">-{inr(targetEmi.paid)}</span>
                             </div>
                           )}
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">EMI Balance Due:</span>
+                            <span className="font-mono font-semibold text-foreground">{inr(targetRemaining)}</span>
+                          </div>
+                          {accruedLateFee > 0 && !waiveLateFee && (
+                            <div className="flex justify-between text-destructive">
+                              <span>Late EMI Charges ({lateFeeCalc.chargeableDays}d @ {inr(lateFeeCalc.lateFeePerDay)}/d):</span>
+                              <span className="font-mono font-bold">+{inr(accruedLateFee)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between border-t border-border/50 pt-1.5 font-bold">
-                            <span>Balance Due Today:</span>
-                            <span className="font-mono text-primary text-sm">{inr(targetRemaining)}</span>
+                            <span>Total Collectible:</span>
+                            <span className="font-mono text-primary text-sm">{inr(totalPayableTarget)}</span>
                           </div>
                         </div>
                       )}
@@ -595,7 +637,7 @@ function CollectionPage() {
                       variant="outline"
                       className="h-12 text-xs font-semibold cursor-pointer border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
                       onClick={() => {
-                        setPtpAmount(String(targetRemaining));
+                        setPtpAmount(String(totalPayableTarget));
                         setShowVisitDialog(true);
                       }}
                     >
@@ -606,7 +648,7 @@ function CollectionPage() {
                       className="h-12 text-xs font-semibold cursor-pointer"
                       disabled={!targetEmi}
                       onClick={() => {
-                        setPayAmount(String(targetRemaining));
+                        setPayAmount(String(totalPayableTarget));
                         setStep(3);
                       }}
                     >
@@ -639,25 +681,107 @@ function CollectionPage() {
                       </CardDescription>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-muted-foreground">Due Remaining</div>
-                      <div className="text-base font-bold font-mono text-primary">{inr(targetRemaining)}</div>
+                      <div className="text-xs text-muted-foreground">Total Collectible</div>
+                      <div className="text-base font-bold font-mono text-primary">{inr(totalPayableTarget)}</div>
+                      {accruedLateFee > 0 && !waiveLateFee && (
+                        <div className="text-[10px] text-destructive font-medium">Includes {inr(accruedLateFee)} late penalty</div>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
+                  {/* Late EMI Charges & Waiver Box if overdue */}
+                  {targetEmi.dueDate < today && (
+                    <div className={`p-3 rounded-lg border text-xs space-y-2.5 transition-colors ${
+                      waiveLateFee
+                        ? "bg-muted/30 border-border/80"
+                        : "bg-destructive/5 border-destructive/30"
+                    }`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className={`h-4 w-4 shrink-0 ${waiveLateFee ? "text-muted-foreground" : "text-destructive"}`} />
+                          <div>
+                            <span className="font-semibold text-foreground">
+                              {waiveLateFee ? "Late Fee Waived" : "Late EMI Penalty Applicable"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground block">
+                              {lateFeeCalc.daysOverdue} days past due • Grace period: {lateFeeCalc.gracePeriodDays} days
+                              {lateFeeCalc.chargeableDays > 0 && ` • Chargeable: ${lateFeeCalc.chargeableDays} days @ ${inr(lateFeeCalc.lateFeePerDay)}/day`}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className={`font-mono font-bold text-sm ${waiveLateFee ? "line-through text-muted-foreground" : "text-destructive"}`}>
+                            {inr(lateFeeCalc.lateFeeAmount)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-1 border-t border-border/40">
+                        <label className="flex items-center gap-2 cursor-pointer font-medium text-[11px] text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={waiveLateFee}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setWaiveLateFee(checked);
+                              setPayAmount(String(checked ? targetRemaining : totalDueWithLateFee));
+                            }}
+                            className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span>Waive Late Fee Charges (Officer Override)</span>
+                        </label>
+
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWaiveLateFee(false);
+                              setPayAmount(String(totalDueWithLateFee));
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 font-semibold cursor-pointer"
+                          >
+                            Full (+Late Fee)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWaiveLateFee(true);
+                              setPayAmount(String(targetRemaining));
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded border border-border bg-background hover:bg-muted text-foreground font-semibold cursor-pointer"
+                          >
+                            EMI Only
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Amount Input */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="collect-amount" className="text-xs font-medium">Payment Amount (₹)</Label>
-                      {targetRemaining > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setPayAmount(String(targetRemaining))}
-                          className="text-[11px] text-primary hover:underline font-semibold cursor-pointer"
-                        >
-                          Exact Due ({inr(targetRemaining)})
-                        </button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {accruedLateFee > 0 && !waiveLateFee ? (
+                          <button
+                            type="button"
+                            onClick={() => setPayAmount(String(totalDueWithLateFee))}
+                            className="text-[11px] text-destructive hover:underline font-semibold cursor-pointer"
+                          >
+                            Full Due ({inr(totalDueWithLateFee)})
+                          </button>
+                        ) : targetRemaining > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setPayAmount(String(targetRemaining))}
+                            className="text-[11px] text-primary hover:underline font-semibold cursor-pointer"
+                          >
+                            Exact Due ({inr(targetRemaining)})
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                     <Input
                       id="collect-amount"
@@ -686,20 +810,20 @@ function CollectionPage() {
                             <>
                               <AlertTriangle className="h-4 w-4 shrink-0" />
                               <span>
-                                Overpayment by {inr(parsedAmount - targetRemaining)}. Click Record Payment to choose how to allocate excess.
+                                Overpayment by {inr(parsedAmount - totalPayableTarget)}. Click Record Payment to choose how to allocate excess.
                               </span>
                             </>
                           ) : willPartial ? (
                             <>
                               <Info className="h-4 w-4 shrink-0" />
                               <span>
-                                Part payment of {inr(parsedAmount)}. Balance remaining: {inr(targetRemaining - parsedAmount)}.
+                                Part payment of {inr(parsedAmount)}. Balance remaining: {inr(totalPayableTarget - parsedAmount)}.
                               </span>
                             </>
                           ) : (
                             <>
                               <CheckCircle2 className="h-4 w-4 shrink-0" />
-                              <span>Full EMI amount cleared ({inr(parsedAmount)}).</span>
+                              <span>Full dues cleared ({inr(parsedAmount)}).</span>
                             </>
                           )}
                         </div>
@@ -709,6 +833,12 @@ function CollectionPage() {
                           <div className="font-semibold text-foreground text-[11px] uppercase tracking-wider mb-1">
                             Live Payment Allocation Split
                           </div>
+                          {itemizedSplit.lateFeePaid > 0 && (
+                            <div className="flex justify-between text-destructive font-medium">
+                              <span>Applied to Late Fee Penalty:</span>
+                              <span className="font-mono font-bold text-destructive">+{inr(itemizedSplit.lateFeePaid)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Applied to Principal Component:</span>
                             <span className="font-mono font-bold text-foreground">{inr(itemizedSplit.pComp)}</span>
@@ -1400,7 +1530,9 @@ function CollectionPage() {
                 { label: "Customer ID", value: selectedCustomer.id },
                 { label: "Loan ID", value: activeLoan?.id ?? "" },
                 { label: "EMI #", value: targetEmi ? `${targetEmi.emiNo} (${targetEmi.id})` : "" },
-                { label: "Amount", value: inr(parsedAmount || 0), bold: true, className: "text-emerald-600 font-mono" },
+                ...(itemizedSplit.lateFeePaid > 0 ? [{ label: "Late Fee Charges", value: inr(itemizedSplit.lateFeePaid), className: "text-destructive font-mono font-bold" }] : []),
+                ...(waiveLateFee && accruedLateFee > 0 ? [{ label: "Late Fee Status", value: "Waived by Officer", className: "text-emerald-600 font-semibold" }] : []),
+                { label: "Amount Received", value: inr(parsedAmount || 0), bold: true, className: "text-emerald-600 font-mono text-sm" },
                 { label: "Method", value: payMethod },
                 ...(isOverpayment ? [{ label: "Allocation", value: excessAction === "next" ? "Spill to next EMI" : "Keep as advance" }] : []),
               ].map(({ label, value, bold, className }) => (
@@ -1413,7 +1545,7 @@ function CollectionPage() {
             {willPartial && (
               <p className="text-amber-600 dark:text-amber-400 text-[10px] flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                This is a partial payment. Remaining: {inr(targetRemaining - parsedAmount)}
+                This is a partial payment. Remaining: {inr(Math.max(0, totalPayableTarget - parsedAmount))}
               </p>
             )}
           </div>

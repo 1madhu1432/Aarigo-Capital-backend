@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import { inr, inrShort, fmtDate, fmtDateTime, addDays } from "@/lib/format";
-import { computeAmortizationSchedule } from "@/utils/amortization";
+import { computeAmortizationSchedule, calculateLateFee } from "@/utils/amortization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/")({
 });
 
 function DashboardPage() {
-  const { customers, loans, emis, payments, visits, today } = useStore();
+  const { customers, loans, emis, payments, visits, today, settings } = useStore();
   const navigate = useNavigate();
 
   // Day & Frequency Filter state
@@ -145,22 +145,33 @@ function DashboardPage() {
     [overdueEmis]
   );
 
+  const totalAccruedLateFees = useMemo(() => {
+    const nowIso = new Date().toISOString();
+    return overdueEmis.reduce((sum, e) => {
+      const lateCalc = calculateLateFee(e.dueDate, nowIso, settings, e.lateFeeWaived);
+      return sum + lateCalc.lateFeeAmount;
+    }, 0);
+  }, [overdueEmis, settings]);
+
   const collectionPct =
     totalDueSelectedDay > 0 ? Math.min(100, Math.round((totalCollectedSelectedDay / totalDueSelectedDay) * 100)) : 0;
 
   // Overdue customers ranked
   const topOverdueBorrowers = useMemo(() => {
-    const map = new Map<string, { customer: (typeof customers)[0]; overdueCount: number; overdueTotal: number; loanId: string }>();
+    const map = new Map<string, { customer: (typeof customers)[0]; overdueCount: number; overdueTotal: number; lateFeeTotal: number; loanId: string }>();
+    const nowIso = new Date().toISOString();
     overdueEmis.forEach((e) => {
       const c = customers.find((cust) => cust.id === e.customerId);
       if (!c) return;
-      const existing = map.get(c.id) ?? { customer: c, overdueCount: 0, overdueTotal: 0, loanId: e.loanId };
+      const existing = map.get(c.id) ?? { customer: c, overdueCount: 0, overdueTotal: 0, lateFeeTotal: 0, loanId: e.loanId };
       existing.overdueCount += 1;
       existing.overdueTotal += (e.amount - e.paid);
+      const lateCalc = calculateLateFee(e.dueDate, nowIso, settings, e.lateFeeWaived);
+      existing.lateFeeTotal += lateCalc.lateFeeAmount;
       map.set(c.id, existing);
     });
-    return Array.from(map.values()).sort((a, b) => b.overdueTotal - a.overdueTotal).slice(0, 4);
-  }, [overdueEmis, customers]);
+    return Array.from(map.values()).sort((a, b) => (b.overdueTotal + b.lateFeeTotal) - (a.overdueTotal + a.lateFeeTotal)).slice(0, 4);
+  }, [overdueEmis, customers, settings]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -471,10 +482,15 @@ function DashboardPage() {
             </CardHeader>
             <CardContent className="p-4 pt-0">
               <div className="text-lg md:text-xl font-bold tracking-tight text-destructive font-mono">
-                {inr(totalOverdueAmount)}
+                {inr(totalOverdueAmount + totalAccruedLateFees)}
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
                 <span className="font-semibold text-destructive">{overdueLoans.length}</span> overdue contracts
+                {totalAccruedLateFees > 0 && (
+                  <span className="block text-[10px] text-destructive/80 font-medium">
+                    (incl. {inr(totalAccruedLateFees)} late fees)
+                  </span>
+                )}
               </p>
             </CardContent>
           </Card>
@@ -711,9 +727,15 @@ function DashboardPage() {
                   <div className="flex items-center justify-between sm:justify-end gap-3 pl-12 sm:pl-0">
                     <div className="text-right">
                       <div className="font-mono font-bold text-destructive text-sm">
-                        {inr(item.overdueTotal)}
+                        {inr(item.overdueTotal + item.lateFeeTotal)}
                       </div>
-                      <div className="text-[10px] text-muted-foreground">Total Default</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {item.lateFeeTotal > 0 ? (
+                          <span>Due {inr(item.overdueTotal)} + Fee {inr(item.lateFeeTotal)}</span>
+                        ) : (
+                          "Total Default"
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -725,7 +747,7 @@ function DashboardPage() {
                         <Phone className="h-3.5 w-3.5 text-primary" />
                       </a>
                       <a
-                        href={`https://wa.me/91${item.customer.mobile}?text=${encodeURIComponent(`Dear ${item.customer.name}, your loan payment of ${inr(item.overdueTotal)} is overdue. Kindly clear it at the earliest.`)}`}
+                        href={`https://wa.me/91${item.customer.mobile}?text=${encodeURIComponent(`Dear ${item.customer.name}, your loan payment of ${inr(item.overdueTotal + item.lateFeeTotal)} (overdue EMI + late charges) is pending. Kindly clear it at the earliest.`)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-border hover:bg-muted text-foreground transition-colors"

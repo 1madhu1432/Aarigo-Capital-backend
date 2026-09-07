@@ -1,5 +1,5 @@
 import type { Loan, Emi, Payment, EmiStatus } from "@/types";
-import { inr, safe, fmtDate } from "@/lib/format";
+import { inr, safe, fmtDate, daysBetween } from "@/lib/format";
 
 export interface AmortizationRow {
   emiNo: number;
@@ -15,6 +15,9 @@ export interface AmortizationRow {
   remainingAmount: number;
   status: EmiStatus;
   remarks: string;
+  lateFee?: number | undefined;
+  lateFeePaid?: number | undefined;
+  lateFeeWaived?: boolean | undefined;
   paymentDetails?: {
     paymentId: string;
     receiptId: string;
@@ -327,5 +330,54 @@ export function computeSchedule(opts: ComputeScheduleOptions): ScheduleCalculati
     const totalInterest = Math.max(0, totalPayable - principal);
     return { emiAmount, totalInterest, totalPayable };
   }
+}
+
+export interface LateFeeCalculation {
+  daysOverdue: number;
+  gracePeriodDays: number;
+  chargeableDays: number;
+  lateFeePerDay: number;
+  lateFeeAmount: number;
+  isWaived: boolean;
+}
+
+/**
+ * Calculates late EMI penalty charges based on days overdue and institution settings.
+ * - If days overdue <= grace period, late fee is ₹0.
+ * - Once grace period is exceeded, charges apply for overdue days past grace period.
+ * - Can be marked as waived.
+ */
+export function calculateLateFee(
+  dueDate: string,
+  currentDate: string,
+  settings: { gracePeriodDays?: number; lateFeePerDay?: number },
+  isWaived = false
+): LateFeeCalculation {
+  const daysOverdue = Math.max(0, daysBetween(dueDate, currentDate));
+  const gracePeriodDays = Math.max(0, safe(settings?.gracePeriodDays));
+  const lateFeePerDay = Math.max(0, safe(settings?.lateFeePerDay));
+
+  if (isWaived || daysOverdue <= gracePeriodDays || lateFeePerDay <= 0) {
+    return {
+      daysOverdue,
+      gracePeriodDays,
+      chargeableDays: 0,
+      lateFeePerDay,
+      lateFeeAmount: 0,
+      isWaived: Boolean(isWaived),
+    };
+  }
+
+  const chargeableDays = daysOverdue - gracePeriodDays;
+  const lateFeeAmount = chargeableDays * lateFeePerDay;
+
+  return {
+    daysOverdue,
+    gracePeriodDays,
+    chargeableDays,
+    lateFeePerDay,
+    lateFeeAmount,
+    isWaived: false,
+  };
 }
 

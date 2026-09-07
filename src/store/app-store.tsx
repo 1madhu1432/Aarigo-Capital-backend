@@ -147,6 +147,8 @@ export interface PaymentInput {
    *  - omitted   → treat same as "next" (safe default)
    */
   excessAction?: "next" | "advance";
+  lateFeePaid?: number;
+  lateFeeWaived?: boolean;
 }
 
 export interface EarlyCloseLoanInput {
@@ -423,6 +425,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const targetEmi = emis.find((e) => e.id === input.emiId);
       const targetRemaining = targetEmi ? targetEmi.amount - targetEmi.paid : 0;
 
+      const lateFeePaid = Math.min(amount, Math.max(0, safe(input.lateFeePaid)));
+      const emiPaymentAmount = Math.max(0, amount - lateFeePaid);
+
       const payment: Payment = {
         id: paymentId,
         receiptId,
@@ -436,6 +441,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         collectedBy: admin.name,
         reversed: false,
         reversalReason: "",
+        lateFeePaid: lateFeePaid > 0 ? lateFeePaid : undefined,
+        lateFeeWaived: input.lateFeeWaived,
       };
       const receipt: Receipt = {
         id: receiptId,
@@ -446,26 +453,33 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         method: input.method,
         date: nowIso,
         status: "Issued",
+        lateFeePaid: lateFeePaid > 0 ? lateFeePaid : undefined,
       };
 
       // ── Apply payment to EMIs ─────────────────────────────────────────────
       setEmis((prev) => {
         const excessAction = input.excessAction ?? "next";
 
-        if (amount <= targetRemaining || excessAction === "advance") {
+        if (emiPaymentAmount <= targetRemaining || excessAction === "advance") {
           // Simple: apply only to target EMI (capped at remaining)
-          const apply = Math.min(amount, targetRemaining);
+          const apply = Math.min(emiPaymentAmount, targetRemaining);
           return prev.map((e) => {
             if (e.id !== input.emiId) return e;
             const paid = e.paid + apply;
             const status: Emi["status"] =
               paid >= e.amount ? "Paid" : paid > 0 ? "Partial" : e.dueDate < today ? "Overdue" : e.dueDate === today ? "Due" : "Upcoming";
-            return { ...e, paid, status };
+            return {
+              ...e,
+              paid,
+              status,
+              lateFeePaid: (e.lateFeePaid ?? 0) + lateFeePaid,
+              lateFeeWaived: input.lateFeeWaived || e.lateFeeWaived,
+            };
           });
         }
 
         // "next" — spill excess into subsequent unpaid EMIs
-        let remaining = amount;
+        let remaining = emiPaymentAmount;
         const targetIdx = prev.findIndex((e) => e.id === input.emiId);
         const order = prev
           .map((e, i) => ({ e, i }))
@@ -480,7 +494,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           const paid = e.paid + apply;
           const status: Emi["status"] =
             paid >= e.amount ? "Paid" : paid > 0 ? "Partial" : e.dueDate < today ? "Overdue" : e.dueDate === today ? "Due" : "Upcoming";
-          updates.set(e.id, { ...e, paid, status });
+          const isTarget = e.id === input.emiId;
+          updates.set(e.id, {
+            ...e,
+            paid,
+            status,
+            ...(isTarget && {
+              lateFeePaid: (e.lateFeePaid ?? 0) + lateFeePaid,
+              lateFeeWaived: input.lateFeeWaived || e.lateFeeWaived,
+            }),
+          });
         }
         return prev.map((e) => updates.get(e.id) ?? e);
       });
