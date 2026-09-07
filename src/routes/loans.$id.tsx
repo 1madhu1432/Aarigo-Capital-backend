@@ -13,6 +13,9 @@ import {
   Printer,
   Download,
   ShieldCheck,
+  Clock,
+  AlertCircle,
+  CalendarClock,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, safe } from "@/lib/format";
@@ -51,11 +54,31 @@ function LoanDetailPage() {
 
   const totalPaid = useMemo(() => loanPayments.filter((p) => !p.reversed).reduce((s, p) => s + p.amount, 0), [loanPayments]);
   const outstanding = isClosedEarly ? 0 : loan ? Math.max(0, loan.totalPayable - totalPaid) : 0;
+  
   const paidEmis = loanEmis.filter((e) => e.status === "Paid").length;
+  const partialEmis = loanEmis.filter((e) => e.status === "Partial").length;
+  const pendingEmis = loanEmis.filter((e) => e.status !== "Paid").length;
+  const overdueEmis = loanEmis.filter((e) => e.status === "Overdue").length;
+
+  const paidEmiAmount = loanEmis.reduce((s, e) => s + e.paid, 0);
+  const pendingEmiAmount = isClosedEarly ? 0 : loanEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);
+  const overdueEmiAmount = loanEmis.filter((e) => e.status === "Overdue").reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);
+
   const progress = loanEmis.length > 0 ? Math.round((paidEmis / loanEmis.length) * 100) : 0;
   const canEarlyClose = Boolean(loan && loan.status !== "Closed" && !isClosedEarly && (sched?.outstandingPrincipal ?? 0) > 0);
 
   const netDisbursed = loan ? Math.max(0, loan.principal - safe(loan.processingFee) - safe(loan.insurance)) : 0;
+
+  const [emiScheduleFilter, setEmiScheduleFilter] = useState<"all" | "paid" | "pending" | "overdue">("all");
+
+  const filteredSchedRows = useMemo(() => {
+    if (!sched?.rows) return [];
+    if (emiScheduleFilter === "all") return sched.rows;
+    if (emiScheduleFilter === "paid") return sched.rows.filter((r) => r.status === "Paid");
+    if (emiScheduleFilter === "pending") return sched.rows.filter((r) => r.status !== "Paid");
+    if (emiScheduleFilter === "overdue") return sched.rows.filter((r) => r.status === "Overdue");
+    return sched.rows;
+  }, [sched?.rows, emiScheduleFilter]);
 
   if (!loan) {
     return (
@@ -167,14 +190,96 @@ function LoanDetailPage() {
               <p className="text-sm font-bold text-foreground mt-0.5">
                 {isClosedEarly ? "100% Settled" : `${progress}% Complete`}
               </p>
-              <Progress value={isClosedEarly ? 100 : progress} className="h-2 mt-1.5 w-32" />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {isClosedEarly ? "Loan Foreclosed Early" : `${paidEmis} of ${loanEmis.length} EMIs paid`}
-              </p>
+              <Progress value={isClosedEarly ? 100 : progress} className="h-2 mt-1.5 w-36 ml-auto" />
+              <div className="flex items-center justify-end gap-2 mt-1.5 text-[11px]">
+                <span className="text-emerald-600 font-semibold">{paidEmis} Paid</span>
+                <span className="text-muted-foreground">•</span>
+                <span className={pendingEmis > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground"}>
+                  {pendingEmis} Pending
+                </span>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Primary Loan Amount & EMI Status Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="shadow-xs border-border/80 bg-gradient-to-br from-card to-muted/20">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Loan Amount</span>
+              <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">Principal</Badge>
+            </div>
+            <p className="text-2xl font-bold font-mono text-foreground mt-1.5">{inr(loan.principal)}</p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+              <span>Net Disbursed:</span>
+              <span className="font-mono font-semibold text-foreground">{inr(netDisbursed)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80 bg-gradient-to-br from-card to-muted/20">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">EMI Installment</span>
+              <Badge variant="outline" className="text-[10px] font-medium border-border">{loan.frequency}</Badge>
+            </div>
+            <p className="text-2xl font-bold font-mono text-foreground mt-1.5">{inr(loan.emiAmount)}</p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+              <span>Total Tenure:</span>
+              <span className="font-semibold text-foreground">{loan.tenure} {loan.frequency === "Monthly" ? "Months" : loan.frequency === "Weekly" ? "Weeks" : "Days"}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">EMI Paid</span>
+              <Badge className="text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                {paidEmis} of {loanEmis.length} Paid
+              </Badge>
+            </div>
+            <p className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1.5">{inr(totalPaid)}</p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+              <span>Repaid Ratio:</span>
+              <span className="font-semibold text-emerald-600">{progress}% cleared {partialEmis > 0 ? `(${partialEmis} partial)` : ""}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className={`shadow-xs bg-gradient-to-br from-card ${outstanding > 0 ? "border-amber-500/40 to-amber-500/5" : "border-border/80 to-muted/20"}`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className={`text-[11px] font-semibold uppercase tracking-wider ${outstanding > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                EMI Pending
+              </span>
+              <Badge
+                variant="outline"
+                className={`text-[10px] font-bold ${
+                  overdueEmis > 0
+                    ? "border-destructive/40 text-destructive bg-destructive/10"
+                    : outstanding > 0
+                    ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {pendingEmis} of {loanEmis.length} Pending
+              </Badge>
+            </div>
+            <p className={`text-2xl font-bold font-mono mt-1.5 ${outstanding > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}`}>
+              {inr(outstanding)}
+            </p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+              <span>{overdueEmis > 0 ? "Overdue Due:" : "Next Due Date:"}</span>
+              <span className={`font-semibold ${overdueEmis > 0 ? "text-destructive font-mono" : "text-foreground"}`}>
+                {overdueEmis > 0 ? `${overdueEmis} EMI (${inr(overdueEmiAmount)})` : fmtDate(loanEmis.find(e => e.status !== "Paid")?.dueDate ?? "") || "Completed"}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Early Closure History Card (User Req A7) */}
       {isClosedEarly && loan.earlyClosure && (
@@ -239,17 +344,17 @@ function LoanDetailPage() {
         </Card>
       )}
 
-      {/* Financial Summary */}
+      {/* Detailed Financial Summary Breakdown */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         {[
-          { label: "Principal", value: inr(loan.principal), color: "" },
+          { label: "Loan Amount", value: inr(loan.principal), color: "" },
           { label: "Net Disbursed", value: inr(netDisbursed), color: "text-blue-600 dark:text-blue-400" },
           { label: "Processing Fee", value: inr(loan.processingFee), color: "" },
           { label: "Insurance", value: inr(loan.insurance), color: "" },
           { label: "Total Interest", value: inr(loan.totalInterest), color: "" },
           { label: "Total Payable", value: inr(loan.totalPayable), color: "" },
-          { label: "Total Paid", value: inr(totalPaid), color: "text-emerald-600" },
-          { label: "Outstanding", value: inr(outstanding), color: outstanding > 0 ? "text-foreground font-bold" : "text-emerald-600" },
+          { label: "EMI Paid", value: inr(totalPaid), color: "text-emerald-600 font-bold" },
+          { label: "EMI Pending", value: inr(outstanding), color: outstanding > 0 ? "text-amber-600 font-bold" : "text-emerald-600" },
         ].map(({ label, value, color }) => (
           <Card key={label} className="shadow-xs border-border">
             <CardContent className="p-3">
@@ -295,7 +400,62 @@ function LoanDetailPage() {
           <TabsTrigger value="visits" className="text-xs">Visits ({loanVisits.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="schedule" className="m-0 mt-4">
+        <TabsContent value="schedule" className="m-0 mt-4 space-y-3">
+          {/* Quick Filter Bar for EMI Schedule */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg border border-border bg-muted/20 text-xs">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-muted-foreground font-medium mr-1">Filter EMIs:</span>
+              <Button
+                type="button"
+                size="sm"
+                variant={emiScheduleFilter === "all" ? "default" : "outline"}
+                className="h-7 text-xs px-2.5 cursor-pointer"
+                onClick={() => setEmiScheduleFilter("all")}
+              >
+                All ({loanEmis.length})
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={emiScheduleFilter === "paid" ? "default" : "outline"}
+                className={`h-7 text-xs px-2.5 cursor-pointer ${
+                  emiScheduleFilter === "paid" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "text-emerald-600 hover:bg-emerald-500/10"
+                }`}
+                onClick={() => setEmiScheduleFilter("paid")}
+              >
+                Paid ({paidEmis}) • {inr(totalPaid)}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={emiScheduleFilter === "pending" ? "default" : "outline"}
+                className={`h-7 text-xs px-2.5 cursor-pointer ${
+                  emiScheduleFilter === "pending" ? "bg-amber-600 hover:bg-amber-700 text-white" : "text-amber-600 hover:bg-amber-500/10"
+                }`}
+                onClick={() => setEmiScheduleFilter("pending")}
+              >
+                Pending ({pendingEmis}) • {inr(outstanding)}
+              </Button>
+              {overdueEmis > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={emiScheduleFilter === "overdue" ? "default" : "outline"}
+                  className={`h-7 text-xs px-2.5 cursor-pointer ${
+                    emiScheduleFilter === "overdue" ? "bg-destructive hover:bg-destructive/90 text-white" : "text-destructive hover:bg-destructive/10"
+                  }`}
+                  onClick={() => setEmiScheduleFilter("overdue")}
+                >
+                  Overdue ({overdueEmis}) • {inr(overdueEmiAmount)}
+                </Button>
+              )}
+            </div>
+
+            <div className="text-[11px] text-muted-foreground">
+              Showing <span className="font-semibold text-foreground">{filteredSchedRows.length}</span> of {loanEmis.length} EMIs
+            </div>
+          </div>
+
           <Card className="shadow-xs border-border">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -307,37 +467,45 @@ function LoanDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {(sched?.rows ?? []).map((r) => {
-                    const isUnpaid = r.status === "Overdue" || r.status === "Pending" || r.status === "Partial" || r.status === "Due";
-                    const minDays = r.status === "Overdue" ? 1 : 0;
-                    const lateCalc = isUnpaid
-                      ? calculateLateFee(r.dueDate, new Date().toISOString(), settings, r.lateFeeWaived, minDays)
-                      : null;
+                  {filteredSchedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="text-center p-8 text-muted-foreground text-xs">
+                        No EMIs found matching the "{emiScheduleFilter}" filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSchedRows.map((r) => {
+                      const isUnpaid = r.status === "Overdue" || r.status === "Pending" || r.status === "Partial" || r.status === "Due";
+                      const minDays = r.status === "Overdue" ? 1 : 0;
+                      const lateCalc = isUnpaid
+                        ? calculateLateFee(r.dueDate, new Date().toISOString(), settings, r.lateFeeWaived, minDays)
+                        : null;
 
-                    return (
-                      <tr key={r.emiId} className="hover:bg-muted/30 transition-colors">
-                        <td className="p-3 font-mono font-bold">{r.emiNo}</td>
-                        <td className="p-3 font-mono">{fmtDate(r.dueDate)}</td>
-                        <td className="p-3 text-right font-mono font-bold">{inr(r.emiAmount)}</td>
-                        <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.principalComponent)}</td>
-                        <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.interestComponent)}</td>
-                        <td className="p-3 text-right font-mono font-semibold">{inr(r.remainingAmount)}</td>
-                        <td className="p-3 text-right font-mono text-xs">
-                          {r.lateFeePaid && r.lateFeePaid > 0 ? (
-                            <span className="text-emerald-600 font-semibold">Paid {inr(r.lateFeePaid)}</span>
-                          ) : r.lateFeeWaived ? (
-                            <span className="text-muted-foreground line-through text-[11px]">Waived</span>
-                          ) : lateCalc && lateCalc.lateFeeAmount > 0 ? (
-                            <span className="text-destructive font-bold">+{inr(lateCalc.lateFeeAmount)}</span>
-                          ) : (
-                            <span className="text-muted-foreground/60">—</span>
-                          )}
-                        </td>
-                        <td className="p-3"><StatusBadge status={r.status} /></td>
-                        <td className="p-3 text-muted-foreground text-[11px] truncate max-w-[150px]">{r.remarks}</td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr key={r.emiId} className="hover:bg-muted/30 transition-colors">
+                          <td className="p-3 font-mono font-bold">{r.emiNo}</td>
+                          <td className="p-3 font-mono">{fmtDate(r.dueDate)}</td>
+                          <td className="p-3 text-right font-mono font-bold">{inr(r.emiAmount)}</td>
+                          <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.principalComponent)}</td>
+                          <td className="p-3 text-right font-mono text-muted-foreground">{inr(r.interestComponent)}</td>
+                          <td className="p-3 text-right font-mono font-semibold">{inr(r.remainingAmount)}</td>
+                          <td className="p-3 text-right font-mono text-xs">
+                            {r.lateFeePaid && r.lateFeePaid > 0 ? (
+                              <span className="text-emerald-600 font-semibold">Paid {inr(r.lateFeePaid)}</span>
+                            ) : r.lateFeeWaived ? (
+                              <span className="text-muted-foreground line-through text-[11px]">Waived</span>
+                            ) : lateCalc && lateCalc.lateFeeAmount > 0 ? (
+                              <span className="text-destructive font-bold">+{inr(lateCalc.lateFeeAmount)}</span>
+                            ) : (
+                              <span className="text-muted-foreground/60">—</span>
+                            )}
+                          </td>
+                          <td className="p-3"><StatusBadge status={r.status} /></td>
+                          <td className="p-3 text-muted-foreground text-[11px] truncate max-w-[150px]">{r.remarks}</td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
