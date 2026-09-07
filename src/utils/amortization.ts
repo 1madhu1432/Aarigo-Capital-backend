@@ -273,3 +273,59 @@ export function calculateEarlyClosure(
     finalClosureAmount,
   };
 }
+
+export interface ComputeScheduleOptions {
+  principal: number;
+  rate: number;
+  method: Loan["interestMethod"];
+  tenure: number;
+  frequency: Loan["frequency"];
+}
+
+export interface ScheduleCalculationResult {
+  emiAmount: number;
+  totalInterest: number;
+  totalPayable: number;
+}
+
+/**
+ * Computes exact EMI amount, total interest, and total payable for a loan schedule.
+ * Accurately scales based on repayment frequency:
+ * - Monthly: 12 periods/year (tenure in months)
+ * - Weekly:  52 periods/year (tenure in weeks)
+ * - Daily:   365 periods/year (tenure in days)
+ */
+export function computeSchedule(opts: ComputeScheduleOptions): ScheduleCalculationResult {
+  const principal = Math.max(0, safe(opts.principal));
+  const rate = Math.max(0, safe(opts.rate));
+  const tenure = Math.max(0, Math.round(safe(opts.tenure)));
+  const method = opts.method;
+  const frequency = opts.frequency || "Monthly";
+
+  if (principal <= 0 || tenure <= 0) {
+    return { emiAmount: 0, totalInterest: 0, totalPayable: principal };
+  }
+
+  const periodsPerYear = frequency === "Daily" ? 365 : frequency === "Weekly" ? 52 : 12;
+  const years = tenure / periodsPerYear;
+
+  if (method === "Flat") {
+    const totalInterest = Math.round(principal * (rate / 100) * years);
+    const totalPayable = principal + totalInterest;
+    const emiAmount = Math.round(totalPayable / tenure);
+    return { emiAmount, totalInterest, totalPayable };
+  } else {
+    // Reducing Balance
+    const r = (rate / 100) / periodsPerYear;
+    if (r === 0) {
+      const emiAmount = Math.round(principal / tenure);
+      return { emiAmount, totalInterest: 0, totalPayable: principal };
+    }
+    const emi = (principal * r * Math.pow(1 + r, tenure)) / (Math.pow(1 + r, tenure) - 1);
+    const emiAmount = Math.round(emi);
+    const totalPayable = emiAmount * tenure;
+    const totalInterest = Math.max(0, totalPayable - principal);
+    return { emiAmount, totalInterest, totalPayable };
+  }
+}
+

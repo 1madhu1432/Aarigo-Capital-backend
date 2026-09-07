@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Search, CheckCircle2, AlertTriangle, CreditCard } from "lucide-react";
+import { ArrowLeft, Search, CheckCircle2, AlertTriangle, CreditCard, Calendar, Clock } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import type { NewLoanInput } from "@/store/app-store";
-import { inr, fmtDate, todayISO, addMonths, safe } from "@/lib/format";
+import { inr, fmtDate, todayISO, addMonths, addDays, generateEmiDates, safe } from "@/lib/format";
+import { computeSchedule } from "@/utils/amortization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,29 +17,15 @@ export const Route = createFileRoute("/loans/new")({
   component: NewLoanPage,
 });
 
-function computeEmi(principal: number, rate: number, tenure: number, method: "Flat" | "Reducing Balance"): {
-  emiAmount: number;
-  totalInterest: number;
-  totalPayable: number;
-} {
-  if (principal <= 0 || tenure <= 0 || rate < 0) return { emiAmount: 0, totalInterest: 0, totalPayable: principal };
-  if (method === "Flat") {
-    const totalInterest = (principal * rate * tenure) / (100 * 12);
-    const totalPayable = principal + totalInterest;
-    const emiAmount = totalPayable / tenure;
-    return { emiAmount, totalInterest, totalPayable };
-  } else {
-    const r = rate / 100 / 12;
-    if (r === 0) return { emiAmount: principal / tenure, totalInterest: 0, totalPayable: principal };
-    const emiAmount = (principal * r * Math.pow(1 + r, tenure)) / (Math.pow(1 + r, tenure) - 1);
-    const totalPayable = emiAmount * tenure;
-    const totalInterest = totalPayable - principal;
-    return { emiAmount, totalInterest, totalPayable };
-  }
+function getDefaultFirstEmiDate(startDate: string, frequency: "Monthly" | "Weekly" | "Daily"): string {
+  if (!startDate) return startDate;
+  if (frequency === "Daily") return addDays(startDate, 1);
+  if (frequency === "Weekly") return addDays(startDate, 7);
+  return addMonths(startDate, 1);
 }
 
 function NewLoanPage() {
-  const { customers, accounts, loans, emis, payments, addLoan } = useStore();
+  const { customers, accounts, loans, emis, payments, addLoan, settings } = useStore();
   const navigate = useNavigate();
   const today = todayISO();
 
@@ -48,16 +35,17 @@ function NewLoanPage() {
   const [overrideCredit, setOverrideCredit] = useState(false);
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
 
+  const initialFrequency = settings?.defaultFrequency || "Monthly";
   const [form, setForm] = useState<Omit<NewLoanInput, "customerId">>({
     principal: 0,
-    interestRate: 12,
+    interestRate: settings?.defaultInterestRate || 12,
     interestMethod: "Flat",
     processingFee: 0,
     insurance: 0,
-    tenure: 12,
-    frequency: "Monthly",
+    tenure: settings?.defaultTenure || 12,
+    frequency: initialFrequency,
     startDate: today,
-    firstEmiDate: addMonths(today, 1),
+    firstEmiDate: getDefaultFirstEmiDate(today, initialFrequency),
     purpose: "",
     disbursementMethod: "Cash",
     bankTransactionId: "",
@@ -106,17 +94,87 @@ function NewLoanPage() {
   }, [selectedCustomerId, loans, emis]);
   const availableLimit = Math.max(0, creditLimit - usedLimit);
 
-  const calc = useMemo(() =>
-    computeEmi(safe(form.principal), safe(form.interestRate), safe(form.tenure), form.interestMethod),
-    [form.principal, form.interestRate, form.tenure, form.interestMethod]
+  const calc = useMemo(
+    () =>
+      computeSchedule({
+        principal: safe(form.principal),
+        rate: safe(form.interestRate),
+        tenure: safe(form.tenure),
+        method: form.interestMethod,
+        frequency: form.frequency,
+      }),
+    [form.principal, form.interestRate, form.tenure, form.interestMethod, form.frequency]
   );
+
+  const emiDates = useMemo(
+    () => generateEmiDates(form.firstEmiDate, form.frequency, Math.max(1, safe(form.tenure))),
+    [form.firstEmiDate, form.frequency, form.tenure]
+  );
+  const calculatedEndDate = emiDates[emiDates.length - 1] ?? form.firstEmiDate;
+
+  const tenureUnit = form.frequency === "Monthly" ? "Months" : form.frequency === "Weekly" ? "Weeks" : "Days";
+  const emiSuffix = form.frequency === "Monthly" ? "/ month" : form.frequency === "Weekly" ? "/ week" : "/ day";
+
+  const handleFrequencyChange = (v: "Monthly" | "Weekly" | "Daily") => {
+    const prevDefault = getDefaultFirstEmiDate(form.startDate, form.frequency);
+    const newDefault = getDefaultFirstEmiDate(form.startDate, v);
+    setForm((f) => {
+      const next = { ...f, frequency: v };
+      if (f.firstEmiDate === prevDefault || !f.firstEmiDate) {
+        next.firstEmiDate = newDefault;
+      }
+      return next;
+    });
+  };
+
+  const handleStartDateChange = (newStart: string) => {
+    const prevDefault = getDefaultFirstEmiDate(form.startDate, form.frequency);
+    const newDefault = getDefaultFirstEmiDate(newStart, form.frequency);
+    setForm((f) => {
+      const next = { ...f, startDate: newStart };
+      if (f.firstEmiDate === prevDefault || !f.firstEmiDate) {
+        next.firstEmiDate = newDefault;
+      }
+      return next;
+    });
+  };
+
+  const tenurePresets = useMemo(() => {
+    if (form.frequency === "Daily") {
+      return [
+        { label: "15D", val: 15 },
+        { label: "30D (1M)", val: 30 },
+        { label: "60D (2M)", val: 60 },
+        { label: "90D (3M)", val: 90 },
+        { label: "100D", val: 100 },
+        { label: "180D", val: 180 },
+      ];
+    }
+    if (form.frequency === "Weekly") {
+      return [
+        { label: "8W", val: 8 },
+        { label: "12W (~3M)", val: 12 },
+        { label: "16W", val: 16 },
+        { label: "26W (~6M)", val: 26 },
+        { label: "52W (1Y)", val: 52 },
+      ];
+    }
+    return [
+      { label: "3M", val: 3 },
+      { label: "6M", val: 6 },
+      { label: "12M (1Y)", val: 12 },
+      { label: "18M", val: 18 },
+      { label: "24M (2Y)", val: 24 },
+      { label: "36M (3Y)", val: 36 },
+    ];
+  }, [form.frequency]);
 
   const exceedsCredit = form.principal > availableLimit && creditLimit > 0;
 
   const validateStep2 = () => {
     const e: LoanFormErrors = {};
     if (!form.principal || form.principal <= 0) e.principal = "Loan amount must be greater than 0";
-    if (!form.tenure || form.tenure <= 0) e.tenure = "Tenure must be greater than 0";
+    if (!form.tenure || form.tenure <= 0) e.tenure = `Tenure must be greater than 0 ${tenureUnit.toLowerCase()}`;
     if (form.interestRate < 0) e.interestRate = "Interest rate cannot be negative";
     if (!form.startDate) e.startDate = "Start date is required";
     if (!form.firstEmiDate) e.firstEmiDate = "First EMI date is required";
@@ -133,6 +191,7 @@ function NewLoanPage() {
   const setField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
   };
+
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
@@ -309,28 +368,50 @@ function NewLoanPage() {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">Tenure *</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.tenure}
-                  onChange={(e) => setField("tenure", parseInt(e.target.value) || 0)}
-                  className="mt-1 h-9 text-xs"
-                />
-                {errors.tenure && <p className="text-destructive text-[10px] mt-0.5">{errors.tenure}</p>}
-              </div>
-              <div>
                 <Label className="text-xs">EMI Frequency</Label>
-                <Select value={form.frequency} onValueChange={(v) => setField("frequency", v as "Monthly" | "Weekly" | "Daily")}>
+                <Select value={form.frequency} onValueChange={(v) => handleFrequencyChange(v as "Monthly" | "Weekly" | "Daily")}>
                   <SelectTrigger className="mt-1 h-9 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
-                    <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
-                    <SelectItem value="Daily" className="text-xs">Daily</SelectItem>
+                    <SelectItem value="Monthly" className="text-xs">Monthly (every month)</SelectItem>
+                    <SelectItem value="Weekly" className="text-xs">Weekly (every 7 days)</SelectItem>
+                    <SelectItem value="Daily" className="text-xs">Daily (every day)</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Tenure ({tenureUnit}) *</Label>
+                  <span className="text-[10px] text-muted-foreground">{form.tenure > 0 ? `${form.tenure} ${form.frequency.toLowerCase()} installments` : ""}</span>
+                </div>
+                <Input
+                  type="number"
+                  min="1"
+                  value={form.tenure || ""}
+                  onChange={(e) => setField("tenure", parseInt(e.target.value) || 0)}
+                  placeholder={`e.g. ${form.frequency === "Monthly" ? "12" : form.frequency === "Weekly" ? "26" : "30"}`}
+                  className="mt-1 h-9 text-xs"
+                />
+                {errors.tenure && <p className="text-destructive text-[10px] mt-0.5">{errors.tenure}</p>}
+                {/* Quick preset buttons */}
+                <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                  <span className="text-[9px] text-muted-foreground mr-0.5">Presets:</span>
+                  {tenurePresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => setField("tenure", p.val)}
+                      className={`text-[9px] px-1.5 py-0.5 rounded cursor-pointer transition-colors border ${
+                        form.tenure === p.val
+                          ? "bg-primary text-primary-foreground border-primary font-medium"
+                          : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <Label className="text-xs">Processing Fee (₹)</Label>
@@ -385,12 +466,15 @@ function NewLoanPage() {
                 <Input
                   type="date"
                   value={form.startDate}
-                  onChange={(e) => setField("startDate", e.target.value)}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
                   className="mt-1 h-9 text-xs"
                 />
               </div>
               <div>
-                <Label className="text-xs">First EMI Date</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">First EMI Date</Label>
+                  <span className="text-[10px] text-muted-foreground font-mono">End: {fmtDate(calculatedEndDate)}</span>
+                </div>
                 <Input
                   type="date"
                   value={form.firstEmiDate}
@@ -421,9 +505,11 @@ function NewLoanPage() {
                     label: "Net Disbursed Amount",
                     value: inr(Math.max(0, form.principal - safe(form.processingFee) - safe(form.insurance))),
                   },
+                  { label: "Repayment Tenure", value: `${form.tenure} ${tenureUnit} (${form.frequency} installments)` },
+                  { label: "Schedule Span", value: `${fmtDate(form.firstEmiDate)} to ${fmtDate(calculatedEndDate)}` },
                   { label: "Total Interest", value: inr(calc.totalInterest) },
                   { label: "Total Payable", value: inr(calc.totalPayable + safe(form.processingFee)) },
-                  { label: "Estimated EMI", value: inr(calc.emiAmount) },
+                  { label: "Estimated EMI", value: `${inr(calc.emiAmount)} ${emiSuffix}` },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between">
                     <span className="text-muted-foreground">{label}:</span>
@@ -474,15 +560,16 @@ function NewLoanPage() {
                 { label: "Disbursement Method", value: form.disbursementMethod },
                 ...(form.bankTransactionId ? [{ label: "Bank Tx / Ref", value: form.bankTransactionId }] : []),
                 { label: "Interest Rate", value: `${form.interestRate}% p.a. (${form.interestMethod})` },
-                { label: "Tenure", value: `${form.tenure} ${form.frequency === "Monthly" ? "months" : form.frequency === "Weekly" ? "weeks" : "days"}` },
+                { label: "Tenure", value: `${form.tenure} ${tenureUnit}` },
                 { label: "EMI Frequency", value: form.frequency },
+                { label: "Estimated EMI", value: `${inr(calc.emiAmount)} ${emiSuffix}` },
                 { label: "Processing Fee", value: inr(form.processingFee) },
                 { label: "Loan Insurance", value: inr(form.insurance) },
                 { label: "Total Interest", value: inr(calc.totalInterest) },
                 { label: "Total Payable", value: inr(calc.totalPayable + safe(form.processingFee)) },
-                { label: "Estimated EMI", value: inr(calc.emiAmount) },
                 { label: "Start Date", value: fmtDate(form.startDate) },
                 { label: "First EMI Date", value: fmtDate(form.firstEmiDate) },
+                { label: "Maturity / End Date", value: fmtDate(calculatedEndDate) },
               ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between">
                   <span className="text-muted-foreground">{label}:</span>
@@ -515,8 +602,8 @@ function NewLoanPage() {
               <p>• Sanctioned Loan: <strong>{inr(form.principal)}</strong></p>
               <p>• Net Disbursed: <strong>{inr(Math.max(0, form.principal - safe(form.processingFee) - safe(form.insurance)))}</strong> via <strong>{form.disbursementMethod}</strong>{form.bankTransactionId ? ` (Ref: ${form.bankTransactionId})` : ""}</p>
               <p>• Borrower: <strong>{selectedCustomer?.name}</strong></p>
-              <p>• EMI of <strong>{inr(calc.emiAmount)}</strong> due <strong>{form.frequency.toLowerCase()}</strong> starting <strong>{fmtDate(form.firstEmiDate)}</strong></p>
-              <p>• {form.tenure} EMIs totaling <strong>{inr(calc.totalPayable + safe(form.processingFee))}</strong></p>
+              <p>• EMI of <strong>{inr(calc.emiAmount)} {emiSuffix}</strong> starting <strong>{fmtDate(form.firstEmiDate)}</strong> (Matures on <strong>{fmtDate(calculatedEndDate)}</strong>)</p>
+              <p>• {form.tenure} {tenureUnit.toLowerCase()} ({form.frequency} installments) totaling <strong>{inr(calc.totalPayable + safe(form.processingFee))}</strong></p>
               <p>• This creates the loan contract and generates the EMI schedule immediately.</p>
             </div>
             <div className="flex gap-2">

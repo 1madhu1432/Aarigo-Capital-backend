@@ -663,7 +663,7 @@ function ReportsPage() {
                           <td className="p-2.5 font-mono text-[10px]">{l.id}</td>
                           <td className="p-2.5 whitespace-nowrap">{fmtDate(l.startDate)}</td>
                           <td className="p-2.5 font-medium">{c?.name}</td>
-                          <td className="p-2.5">{l.tenure} {l.frequency}</td>
+                          <td className="p-2.5">{l.tenure} {l.frequency === "Monthly" ? "Months" : l.frequency === "Weekly" ? "Weeks" : "Days"}</td>
                           <td className="p-2.5 text-right font-mono font-bold">{inr(l.principal)}</td>
                           <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(l.processingFee)}</td>
                           <td className="p-2.5 text-right font-mono text-muted-foreground">{inr(l.insurance)}</td>

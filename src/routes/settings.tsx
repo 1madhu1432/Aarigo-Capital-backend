@@ -17,8 +17,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import type { EmiFrequency } from "@/types";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -35,6 +37,7 @@ function SettingsPage() {
     businessEmail: settings.businessEmail,
     defaultInterestRate: settings.defaultInterestRate,
     defaultTenure: settings.defaultTenure,
+    defaultFrequency: settings.defaultFrequency || ("Monthly" as EmiFrequency),
     lateFeePerDay: settings.lateFeePerDay,
     receiptPrefix: settings.receiptPrefix,
     receiptFooter: settings.receiptFooter,
@@ -159,7 +162,7 @@ function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0 space-y-3 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="rate" className="text-xs">Default Rate (% p.a.)</Label>
                 <Input
@@ -171,7 +174,25 @@ function SettingsPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="tenure" className="text-xs">Default Tenure (Months)</Label>
+                <Label htmlFor="frequency" className="text-xs">Default Frequency</Label>
+                <Select
+                  value={form.defaultFrequency}
+                  onValueChange={(v) => setForm({ ...form, defaultFrequency: v as EmiFrequency })}
+                >
+                  <SelectTrigger id="frequency" className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+                    <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+                    <SelectItem value="Daily" className="text-xs">Daily</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="tenure" className="text-xs">
+                  Default Tenure ({form.defaultFrequency === "Monthly" ? "Months" : form.defaultFrequency === "Weekly" ? "Weeks" : "Days"})
+                </Label>
                 <Input
                   id="tenure"
                   type="number"

@@ -175,31 +175,8 @@ export function buildAccounts(customers: Customer[]): Account[] {
 }
 
 /* ------------------------------ Loans ------------------------------ */
-export function computeSchedule(opts: {
-  principal: number;
-  rate: number;
-  method: Loan["interestMethod"];
-  tenure: number;
-  frequency: Loan["frequency"];
-}) {
-  const { principal, rate, method, tenure } = opts;
-  const years = tenure / 12;
-  let totalInterest: number;
-  if (method === "Flat") {
-    totalInterest = principal * (rate / 100) * years;
-  } else {
-    const r = rate / 100 / 12;
-    if (r === 0) totalInterest = 0;
-    else {
-      const emi = (principal * r * Math.pow(1 + r, tenure)) / (Math.pow(1 + r, tenure) - 1);
-      totalInterest = emi * tenure - principal;
-    }
-  }
-  totalInterest = Math.max(0, Math.round(totalInterest));
-  const totalPayable = principal + totalInterest;
-  const emiAmount = tenure > 0 ? Math.round(totalPayable / tenure) : 0;
-  return { totalInterest, totalPayable, emiAmount };
-}
+export { computeSchedule } from "@/utils/amortization";
+import { computeSchedule } from "@/utils/amortization";
 
 export function buildLoans(customers: Customer[], accounts: Account[]): Loan[] {
   const loans: Loan[] = [];
@@ -211,20 +188,44 @@ export function buildLoans(customers: Customer[], accounts: Account[]): Loan[] {
       n += 1;
       const acc = accounts.find((a) => a.customerId === c.id)!;
       const principal = round(between(30000, 150000), 5000);
-      const tenure = pick([6, 10, 12, 12, 18, 24]);
       const rate = pick([14, 16, 18, 20, 24]);
       const method: Loan["interestMethod"] = idx % 3 === 0 ? "Reducing Balance" : "Flat";
-      // elapsed months so a slice of loans has an EMI landing exactly today
-      const elapsed = Math.min(tenure - 1, between(1, Math.max(1, tenure - 1)));
-      const startDate = addMonths(TODAY, -elapsed - 1);
-      const firstEmiDate = addMonths(startDate, 1);
+
+      // Diverse frequencies across loans to demonstrate Monthly, Weekly, Daily
+      let frequency: Loan["frequency"] = "Monthly";
+      let tenure = pick([6, 10, 12, 12, 18, 24]);
+      let startDate: string;
+      let firstEmiDate: string;
+
+      if (n === 103 || n === 107) {
+        frequency = "Weekly";
+        tenure = pick([12, 20, 26]);
+        const elapsed = Math.min(tenure - 2, 6);
+        startDate = addDays(TODAY, -elapsed * 7 - 7);
+        firstEmiDate = addDays(startDate, 7);
+      } else if (n === 105) {
+        frequency = "Daily";
+        tenure = pick([30, 45, 60]);
+        const elapsed = Math.min(tenure - 5, 15);
+        startDate = addDays(TODAY, -elapsed - 1);
+        firstEmiDate = addDays(startDate, 1);
+      } else {
+        const elapsed = Math.min(tenure - 1, between(1, Math.max(1, tenure - 1)));
+        startDate = addMonths(TODAY, -elapsed - 1);
+        firstEmiDate = addMonths(startDate, 1);
+      }
+
       const { totalInterest, totalPayable, emiAmount } = computeSchedule({
         principal,
         rate,
         method,
         tenure,
-        frequency: "Monthly",
+        frequency,
       });
+
+      const emiDates = generateEmiDates(firstEmiDate, frequency, tenure);
+      const endDate = emiDates[emiDates.length - 1] ?? firstEmiDate;
+
       loans.push({
         id: padId("LN", n),
         customerId: c.id,
@@ -235,13 +236,13 @@ export function buildLoans(customers: Customer[], accounts: Account[]): Loan[] {
         processingFee: round(principal * 0.01, 50),
         insurance: round(principal * 0.005, 50),
         tenure,
-        frequency: "Monthly",
+        frequency,
         emiAmount,
         totalInterest,
         totalPayable,
         startDate,
         firstEmiDate,
-        endDate: addMonths(firstEmiDate, tenure - 1),
+        endDate,
         status: "Active",
         purpose: pick(PURPOSES),
         disbursementMethod: "Cash",
