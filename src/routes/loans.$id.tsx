@@ -64,6 +64,21 @@ function LoanDetailPage() {
   const pendingEmiAmount = isClosedEarly ? 0 : loanEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);
   const overdueEmiAmount = loanEmis.filter((e) => e.status === "Overdue").reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);
 
+  const principalPaid = isClosedEarly
+    ? (loan?.principal ?? 0)
+    : (sched?.totalPrincipalPaid ?? 0);
+  const principalPending = isClosedEarly
+    ? 0
+    : (sched?.outstandingPrincipal ?? Math.max(0, (loan?.principal ?? 0) - principalPaid));
+  const principalPaidPct = loan && loan.principal > 0
+    ? Math.min(100, Math.round((principalPaid / loan.principal) * 100))
+    : 0;
+
+  const interestPaid = sched?.totalInterestPaid ?? 0;
+  const interestPending = isClosedEarly
+    ? 0
+    : Math.max(0, (loan?.totalInterest ?? 0) - interestPaid);
+
   const progress = loanEmis.length > 0 ? Math.round((paidEmis / loanEmis.length) * 100) : 0;
   const canEarlyClose = Boolean(loan && loan.status !== "Closed" && !isClosedEarly && (sched?.outstandingPrincipal ?? 0) > 0);
 
@@ -190,21 +205,32 @@ function LoanDetailPage() {
               <p className="text-sm font-bold text-foreground mt-0.5">
                 {isClosedEarly ? "100% Settled" : `${progress}% Complete`}
               </p>
-              <Progress value={isClosedEarly ? 100 : progress} className="h-2 mt-1.5 w-36 ml-auto" />
-              <div className="flex items-center justify-end gap-2 mt-1.5 text-[11px]">
-                <span className="text-emerald-600 font-semibold">{paidEmis} Paid</span>
-                <span className="text-muted-foreground">•</span>
-                <span className={pendingEmis > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground"}>
-                  {pendingEmis} Pending
-                </span>
+              <Progress value={isClosedEarly ? 100 : progress} className="h-2 mt-1.5 w-44 ml-auto" />
+              <div className="flex flex-col items-end gap-0.5 mt-1.5 text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-[10px] uppercase font-semibold">Principal:</span>
+                  <span className="text-emerald-600 font-bold">{inr(principalPaid)}</span>
+                  <span className="text-muted-foreground">paid</span>
+                  <span className="text-muted-foreground">•</span>
+                  <span className={principalPending > 0 ? "text-amber-600 font-bold" : "text-muted-foreground"}>
+                    {inr(principalPending)}
+                  </span>
+                  <span className="text-muted-foreground">pending</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span>EMI: {inr(totalPaid)} paid ({paidEmis})</span>
+                  <span>•</span>
+                  <span>{inr(outstanding)} pending ({pendingEmis})</span>
+                </div>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Primary Loan Amount & EMI Status Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Primary Loan & Repayment Metrics: Principal Paid/Pending & EMI Paid/Pending */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {/* Card 1: Loan Amount */}
         <Card className="shadow-xs border-border/80 bg-gradient-to-br from-card to-muted/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -219,41 +245,74 @@ function LoanDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-xs border-border/80 bg-gradient-to-br from-card to-muted/20">
+        {/* Card 2: Principal Paid */}
+        <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">EMI Installment</span>
-              <Badge variant="outline" className="text-[10px] font-medium border-border">{loan.frequency}</Badge>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Principal Paid</span>
+              <Badge className="text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                {principalPaidPct}% Settled
+              </Badge>
             </div>
-            <p className="text-2xl font-bold font-mono text-foreground mt-1.5">{inr(loan.emiAmount)}</p>
+            <p className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1.5">{inr(principalPaid)}</p>
             <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
-              <span>Total Tenure:</span>
-              <span className="font-semibold text-foreground">{loan.tenure} {loan.frequency === "Monthly" ? "Months" : loan.frequency === "Weekly" ? "Weeks" : "Days"}</span>
+              <span>Interest Paid:</span>
+              <span className="font-mono font-semibold text-emerald-600">{inr(interestPaid)}</span>
             </div>
           </CardContent>
         </Card>
 
+        {/* Card 3: Principal Pending */}
+        <Card className={`shadow-xs bg-gradient-to-br from-card ${principalPending > 0 ? "border-amber-500/40 to-amber-500/5" : "border-border/80 to-muted/20"}`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className={`text-[11px] font-semibold uppercase tracking-wider ${principalPending > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                Principal Pending
+              </span>
+              <Badge
+                variant="outline"
+                className={`text-[10px] font-bold ${
+                  principalPending > 0
+                    ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {100 - principalPaidPct}% Left
+              </Badge>
+            </div>
+            <p className={`text-2xl font-bold font-mono mt-1.5 ${principalPending > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}`}>
+              {inr(principalPending)}
+            </p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+              <span>Interest Pending:</span>
+              <span className="font-mono font-semibold text-foreground">{inr(interestPending)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 4: EMI Amount Paid */}
         <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">EMI Paid</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">EMI Amount Paid</span>
               <Badge className="text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
-                {paidEmis} of {loanEmis.length} Paid
+                {paidEmis} of {loanEmis.length} EMIs
               </Badge>
             </div>
             <p className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1.5">{inr(totalPaid)}</p>
             <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
               <span>Repaid Ratio:</span>
-              <span className="font-semibold text-emerald-600">{progress}% cleared {partialEmis > 0 ? `(${partialEmis} partial)` : ""}</span>
+              <span className="font-semibold text-emerald-600">{progress}% {partialEmis > 0 ? `(${partialEmis} partial)` : "cleared"}</span>
             </div>
           </CardContent>
         </Card>
 
+        {/* Card 5: EMI Amount Pending */}
         <Card className={`shadow-xs bg-gradient-to-br from-card ${outstanding > 0 ? "border-amber-500/40 to-amber-500/5" : "border-border/80 to-muted/20"}`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className={`text-[11px] font-semibold uppercase tracking-wider ${outstanding > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
-                EMI Pending
+                EMI Amount Pending
               </span>
               <Badge
                 variant="outline"
@@ -348,13 +407,13 @@ function LoanDetailPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         {[
           { label: "Loan Amount", value: inr(loan.principal), color: "" },
+          { label: "Principal Paid", value: inr(principalPaid), color: "text-emerald-600 dark:text-emerald-400 font-bold" },
+          { label: "Principal Pending", value: inr(principalPending), color: principalPending > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-emerald-600 font-bold" },
           { label: "Net Disbursed", value: inr(netDisbursed), color: "text-blue-600 dark:text-blue-400" },
-          { label: "Processing Fee", value: inr(loan.processingFee), color: "" },
-          { label: "Insurance", value: inr(loan.insurance), color: "" },
           { label: "Total Interest", value: inr(loan.totalInterest), color: "" },
           { label: "Total Payable", value: inr(loan.totalPayable), color: "" },
-          { label: "EMI Paid", value: inr(totalPaid), color: "text-emerald-600 font-bold" },
-          { label: "EMI Pending", value: inr(outstanding), color: outstanding > 0 ? "text-amber-600 font-bold" : "text-emerald-600" },
+          { label: "EMI Amount Paid", value: inr(totalPaid), color: "text-emerald-600 dark:text-emerald-400 font-bold" },
+          { label: "EMI Amount Pending", value: inr(outstanding), color: outstanding > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-emerald-600 font-bold" },
         ].map(({ label, value, color }) => (
           <Card key={label} className="shadow-xs border-border">
             <CardContent className="p-3">
@@ -423,7 +482,7 @@ function LoanDetailPage() {
                 }`}
                 onClick={() => setEmiScheduleFilter("paid")}
               >
-                Paid ({paidEmis}) • {inr(totalPaid)}
+                Paid ({paidEmis}) • EMI: {inr(totalPaid)} (Prin: {inr(principalPaid)})
               </Button>
               <Button
                 type="button"
@@ -434,7 +493,7 @@ function LoanDetailPage() {
                 }`}
                 onClick={() => setEmiScheduleFilter("pending")}
               >
-                Pending ({pendingEmis}) • {inr(outstanding)}
+                Pending ({pendingEmis}) • EMI: {inr(outstanding)} (Prin: {inr(principalPending)})
               </Button>
               {overdueEmis > 0 && (
                 <Button
