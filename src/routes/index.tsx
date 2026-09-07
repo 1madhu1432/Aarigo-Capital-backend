@@ -19,9 +19,12 @@ import {
   MessageCircle,
   FileSpreadsheet,
   Footprints,
+  Coins,
+  Percent,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
 import { inr, inrShort, fmtDate, fmtDateTime } from "@/lib/format";
+import { computeAmortizationSchedule } from "@/utils/amortization";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,15 +42,33 @@ function DashboardPage() {
   const activeLoans = useMemo(() => loans.filter((l) => l.status === "Active"), [loans]);
   const overdueLoans = useMemo(() => loans.filter((l) => l.status === "Overdue"), [loans]);
   
-  const totalOutstanding = useMemo(() => {
-    return loans
+  const portfolioOutstanding = useMemo(() => {
+    let principal = 0;
+    let interest = 0;
+    let total = 0;
+
+    loans
       .filter((l) => l.status !== "Closed" && l.status !== "Closed Early")
-      .reduce((sum, l) => {
+      .forEach((l) => {
+        const sched = computeAmortizationSchedule(l, emis, payments);
+        const remP = Math.max(0, l.principal - sched.totalPrincipalPaid);
         const loanEmis = emis.filter((e) => e.loanId === l.id);
-        const remaining = loanEmis.reduce((s, e) => s + (e.amount - e.paid), 0);
-        return sum + remaining;
-      }, 0);
-  }, [loans, emis]);
+        const loanTotalRem = loanEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0);
+        const remI = Math.max(0, loanTotalRem - remP);
+
+        principal += remP;
+        interest += remI;
+        total += loanTotalRem;
+      });
+
+    return {
+      principal,
+      interest,
+      total,
+    };
+  }, [loans, emis, payments]);
+
+  const totalOutstanding = portfolioOutstanding.total;
 
   const dueTodayEmis = useMemo(() => emis.filter((e) => e.dueDate === today), [emis, today]);
   const totalDueToday = useMemo(() => dueTodayEmis.reduce((sum, e) => sum + e.amount, 0), [dueTodayEmis]);
@@ -152,153 +173,195 @@ function DashboardPage() {
         </div>
       )}
 
-      {/* 8 Comprehensive KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        {/* KPI 1: Today's Collection */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Today's Collected</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
-              <Banknote className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {inr(totalCollectedToday)}
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1.5">
-              <span>Target: {inr(totalDueToday)}</span>
-              <span className="font-semibold text-emerald-600">{collectionPct}%</span>
-            </div>
-            <Progress value={collectionPct} className="h-1.5 mt-1.5 bg-muted" />
-          </CardContent>
-        </Card>
+      {/* 10 Comprehensive Operations & Portfolio KPI Cards */}
+      <div className="space-y-3 md:space-y-4">
+        {/* Row 1: Daily Recovery Operations */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {/* KPI 1: Today's Collection */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Today's Collected</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
+                <Banknote className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
+                {inr(totalCollectedToday)}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1.5">
+                <span>Target: {inr(totalDueToday)}</span>
+                <span className="font-semibold text-emerald-600">{collectionPct}%</span>
+              </div>
+              <Progress value={collectionPct} className="h-1.5 mt-1.5 bg-muted" />
+            </CardContent>
+          </Card>
 
-        {/* KPI 2: Today's Due */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Today's Due</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-600">
-              <Clock className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {inr(totalDueToday)}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Across <span className="font-semibold text-foreground">{dueTodayEmis.length}</span> borrower EMIs
-            </p>
-          </CardContent>
-        </Card>
+          {/* KPI 2: Today's Due */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Today's Due</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-600">
+                <Clock className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
+                {inr(totalDueToday)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Across <span className="font-semibold text-foreground">{dueTodayEmis.length}</span> borrower EMIs
+              </p>
+            </CardContent>
+          </Card>
 
-        {/* KPI 3: Pending Today */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Pending Today</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500/10 text-sky-600">
-              <Calendar className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {inr(pendingToday)}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Remaining to close today
-            </p>
-          </CardContent>
-        </Card>
+          {/* KPI 3: Pending Today */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Pending Today</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-500/10 text-sky-600">
+                <Calendar className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
+                {inr(pendingToday)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Remaining to close today
+              </p>
+            </CardContent>
+          </Card>
 
-        {/* KPI 4: Month's Collection */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Month Collection</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {inr(totalCollectedMonth)}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              {monthPayments.length} receipts this month
-            </p>
-          </CardContent>
-        </Card>
+          {/* KPI 4: Month's Collection */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Month Collection</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-500/10 text-indigo-600">
+                <TrendingUp className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
+                {inr(totalCollectedMonth)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {monthPayments.length} receipts this month
+              </p>
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* KPI 5: Total Portfolio Outstanding */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Total Outstanding</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <CreditCard className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {inr(totalOutstanding)}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Active principal + interest
-            </p>
-          </CardContent>
-        </Card>
+        {/* Row 2: Portfolio Outstanding & Risk Exposure */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+          {/* KPI 5: Total Portfolio Outstanding */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Total Outstanding</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <CreditCard className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-xl font-bold tracking-tight text-foreground font-mono">
+                {inr(portfolioOutstanding.total)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Active principal + interest
+              </p>
+            </CardContent>
+          </Card>
 
-        {/* KPI 6: Overdue Risk */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Overdue Risk</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-destructive/10 text-destructive">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-destructive font-mono">
-              {inr(totalOverdueAmount)}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              <span className="font-semibold text-destructive">{overdueLoans.length}</span> overdue contracts
-            </p>
-          </CardContent>
-        </Card>
+          {/* KPI 6: Outstanding Principal */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Outstanding Principal</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <Coins className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400 font-mono">
+                {inr(portfolioOutstanding.principal)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Active principal to recover
+              </p>
+            </CardContent>
+          </Card>
 
-        {/* KPI 7: Total Borrowers */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Total Customers</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-teal-500/10 text-teal-600">
-              <Users className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {customers.length}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              {customers.filter((c) => c.status === "Active").length} active accounts
-            </p>
-          </CardContent>
-        </Card>
+          {/* KPI 7: Outstanding Interest */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Outstanding Interest</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Percent className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400 font-mono">
+                {inr(portfolioOutstanding.interest)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Scheduled interest receivables
+              </p>
+            </CardContent>
+          </Card>
 
-        {/* KPI 8: Active Loans */}
-        <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Active Loans</CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
-              <CheckCircle2 className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-lg md:text-2xl font-bold tracking-tight text-foreground font-mono">
-              {activeLoans.length}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Of {loans.length} total disbursed
-            </p>
-          </CardContent>
-        </Card>
+          {/* KPI 8: Overdue Risk */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Overdue Risk</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-xl font-bold tracking-tight text-destructive font-mono">
+                {inr(totalOverdueAmount)}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                <span className="font-semibold text-destructive">{overdueLoans.length}</span> overdue contracts
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* KPI 9: Active Loans */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Active Loans</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600">
+                <CheckCircle2 className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-xl font-bold tracking-tight text-foreground font-mono">
+                {activeLoans.length}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Of {loans.length} total disbursed
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* KPI 10: Total Customers */}
+          <Card className="shadow-xs border-border/70 hover:border-border transition-colors">
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Total Customers</CardTitle>
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-teal-500/10 text-teal-600">
+                <Users className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-lg md:text-xl font-bold tracking-tight text-foreground font-mono">
+                {customers.length}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {customers.filter((c) => c.status === "Active").length} active accounts
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Main Grid: Today's Due Table + Recent Payments */}
