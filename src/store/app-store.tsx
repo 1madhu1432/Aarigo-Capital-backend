@@ -16,6 +16,7 @@ import type {
   BankDetail,
   CreditLimitChange,
   Customer,
+  DailyClosing,
   DisbursementMethod,
   DisbursementRecord,
   DocumentCategory,
@@ -50,6 +51,7 @@ interface PersistedState {
   disbursements?: DisbursementRecord[];
   promiseToPay: PromiseToPay[];
   earlyClosures?: EarlyClosureRecord[];
+  dailyClosings?: DailyClosing[];
   counters: CounterState;
   admin: AdminProfile;
   settings: Settings;
@@ -179,9 +181,13 @@ interface StoreValue {
   disbursements: DisbursementRecord[];
   promiseToPay: PromiseToPay[];
   earlyClosures: EarlyClosureRecord[];
+  dailyClosings: DailyClosing[];
   notifications: AppNotification[];
   admin: AdminProfile;
   settings: Settings;
+
+  closeDay: (input: { date: string; notes?: string; status?: "Closed" | "Audited" }) => DailyClosing;
+  reopenDay: (date: string) => void;
 
   addCustomer: (input: NewCustomerInput) => { customer: Customer; account: Account };
   updateCustomer: (id: string, patch: Partial<Customer>) => void;
@@ -237,6 +243,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [earlyClosures, setEarlyClosures] = useState<EarlyClosureRecord[]>(
     (stored as PersistedState & { earlyClosures?: EarlyClosureRecord[] })?.earlyClosures ?? [],
   );
+  const [dailyClosings, setDailyClosings] = useState<DailyClosing[]>(
+    (stored as PersistedState & { dailyClosings?: DailyClosing[] })?.dailyClosings ??
+      (seed as typeof seed & { dailyClosings?: DailyClosing[] }).dailyClosings ??
+      [],
+  );
   const [admin, setAdmin] = useState<AdminProfile>(stored?.admin ?? defaultAdmin);
   const [settings, setSettings] = useState<Settings>(stored?.settings ?? defaultSettings);
   const [counters, setCounters] = useState<CounterState>(stored?.counters ?? DEFAULT_COUNTERS);
@@ -278,6 +289,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       disbursements,
       promiseToPay,
       earlyClosures,
+      dailyClosings,
       counters,
       admin,
       settings,
@@ -289,7 +301,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [
     customers, accounts, loans, emis, payments, receipts, visits,
-    limitHistory, documents, bankDetails, disbursements, promiseToPay, earlyClosures, counters, admin, settings,
+    limitHistory, documents, bankDetails, disbursements, promiseToPay, earlyClosures, dailyClosings, counters, admin, settings,
   ]);
 
   // ── ID helpers ────────────────────────────────────────────────────────────
@@ -1003,6 +1015,67 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setPromiseToPay((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }, []);
 
+  const closeDay = useCallback<StoreValue["closeDay"]>(
+    ({ date, notes, status = "Closed" }) => {
+      const dayPayments = payments.filter((p) => p.date.slice(0, 10) === date && !p.reversed);
+      const dayEmis = emis.filter((e) => e.dueDate === date);
+      const dayVisits = visits.filter((v) => v.date === date);
+
+      const totalDue = dayEmis.reduce((s, e) => s + e.amount, 0);
+      const totalCollected = dayPayments.reduce((s, p) => s + p.amount, 0);
+      const shortfall = Math.max(0, totalDue - totalCollected);
+      const collectionRate = totalDue > 0 ? Math.min(100, Math.round((totalCollected / totalDue) * 100)) : 100;
+
+      const cashPayments = dayPayments.filter((p) => p.method === "Cash");
+      const upiPayments = dayPayments.filter((p) => p.method === "UPI");
+      const bankPayments = dayPayments.filter((p) => p.method === "Bank");
+
+      const cashAmount = cashPayments.reduce((s, p) => s + p.amount, 0);
+      const upiAmount = upiPayments.reduce((s, p) => s + p.amount, 0);
+      const bankAmount = bankPayments.reduce((s, p) => s + p.amount, 0);
+
+      const record: DailyClosing = {
+        id: `DCL-${date.replace(/-/g, "")}`,
+        date,
+        totalDue,
+        totalCollected,
+        shortfall,
+        collectionRate,
+        cashAmount,
+        cashCount: cashPayments.length,
+        upiAmount,
+        upiCount: upiPayments.length,
+        bankAmount,
+        bankCount: bankPayments.length,
+        transactionsCount: dayPayments.length,
+        visitsCount: dayVisits.length,
+        status,
+        closedBy: admin.name || "Cashier Admin",
+        closedAt: new Date().toISOString(),
+        notes: notes || "Audited and closed cashier drawer.",
+      };
+
+      setDailyClosings((prev) => {
+        const existingIdx = prev.findIndex((c) => c.date === date);
+        if (existingIdx >= 0) {
+          const next = [...prev];
+          next[existingIdx] = record;
+          return next;
+        }
+        return [record, ...prev];
+      });
+
+      return record;
+    },
+    [payments, emis, visits, admin.name],
+  );
+
+  const reopenDay = useCallback<StoreValue["reopenDay"]>((date) => {
+    setDailyClosings((prev) =>
+      prev.map((c) => (c.date === date ? { ...c, status: "Open", notes: "Re-opened for adjustments" } : c)),
+    );
+  }, []);
+
   const resetDemoData = useCallback(() => {
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -1023,6 +1096,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setDisbursements([]);
     setPromiseToPay([]);
     setEarlyClosures([]);
+    setDailyClosings(fresh.dailyClosings ?? []);
     setCounters(DEFAULT_COUNTERS);
     setAdmin(defaultAdmin);
     setSettings(defaultSettings);
@@ -1050,9 +1124,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     disbursements,
     promiseToPay,
     earlyClosures,
+    dailyClosings,
     notifications,
     admin,
     settings,
+    closeDay,
+    reopenDay,
     addCustomer,
     updateCustomer,
     updateCustomerPhoto,

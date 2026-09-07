@@ -159,7 +159,8 @@ export function AppSidebar({ collapsed, onToggleCollapse, className }: AppSideba
           subItems: [
             { title: "Collect EMI", href: "/collection?tab=collect" },
             { title: "Today's Collection", href: "/collection?tab=today" },
-            { title: "Daily Closing", href: "/collection?tab=closing" },
+            { title: "Daily Closing", href: "/collection?tab=closing&sub=audit" },
+            { title: "Closing History (All Days)", href: "/collection?tab=closing&sub=history" },
           ],
         },
         {

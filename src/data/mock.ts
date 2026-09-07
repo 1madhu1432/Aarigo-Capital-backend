@@ -5,6 +5,7 @@ import type {
   AppNotification,
   CreditLimitChange,
   Customer,
+  DailyClosing,
   DocumentFile,
   Emi,
   Loan,
@@ -510,6 +511,87 @@ export function buildNotifications(counts: {
   return list;
 }
 
+export function buildDailyClosings(
+  emis: Emi[],
+  payments: Payment[],
+  visits: Visit[],
+): DailyClosing[] {
+  const closings: DailyClosing[] = [];
+  // Build for past 14 days (index 0 = today, index 1 = yesterday, ..., 13 = 13 days ago)
+  for (let d = 0; d < 14; d++) {
+    const targetDate = addDays(TODAY, -d);
+    const dayPayments = payments.filter(
+      (p) => p.date.slice(0, 10) === targetDate && !p.reversed,
+    );
+    const dayEmis = emis.filter((e) => e.dueDate === targetDate);
+    const dayVisits = visits.filter((v) => v.date === targetDate);
+
+    // Actual ledger sums for this day
+    const actualDue = dayEmis.reduce((s, e) => s + e.amount, 0);
+    const actualCollected = dayPayments.reduce((s, p) => s + p.amount, 0);
+
+    const cashPayments = dayPayments.filter((p) => p.method === "Cash");
+    const upiPayments = dayPayments.filter((p) => p.method === "UPI");
+    const bankPayments = dayPayments.filter((p) => p.method === "Bank");
+
+    const cashAmount = cashPayments.reduce((s, p) => s + p.amount, 0);
+    const upiAmount = upiPayments.reduce((s, p) => s + p.amount, 0);
+    const bankAmount = bankPayments.reduce((s, p) => s + p.amount, 0);
+
+    // If a day had scheduled EMIs or payments, use exact values.
+    // If it was a quiet past day with 0 EMIs, generate realistic historical closing figures
+    // so all past days have rich closing audit trails.
+    const isToday = d === 0;
+    const fallbackDue = 32000 + ((d * 4700) % 28000);
+    const fallbackColl = Math.round((fallbackDue * (0.82 + ((d * 7) % 16) / 100)) / 100) * 100;
+
+    const totalDue = actualDue > 0 ? actualDue : (isToday ? actualDue : fallbackDue);
+    const totalCollected = actualCollected > 0 ? actualCollected : (isToday ? actualCollected : fallbackColl);
+    const shortfall = Math.max(0, totalDue - totalCollected);
+    const collectionRate = totalDue > 0 ? Math.min(100, Math.round((totalCollected / totalDue) * 100)) : 100;
+
+    const cAmount = cashAmount > 0 ? cashAmount : (isToday ? 0 : Math.round(totalCollected * 0.65));
+    const cCount = cashPayments.length > 0 ? cashPayments.length : (isToday ? 0 : 5 + (d % 6));
+    const uAmount = upiAmount > 0 ? upiAmount : (isToday ? 0 : Math.round(totalCollected * 0.25));
+    const uCount = upiPayments.length > 0 ? upiPayments.length : (isToday ? 0 : 2 + (d % 4));
+    const bAmount = bankAmount > 0 ? bankAmount : (isToday ? 0 : totalCollected - cAmount - uAmount);
+    const bCount = bankPayments.length > 0 ? bankPayments.length : (isToday ? 0 : 1 + (d % 2));
+
+    const status: "Closed" | "Audited" | "Open" = isToday ? "Open" : d % 4 === 0 ? "Audited" : "Closed";
+
+    closings.push({
+      id: `DCL-${targetDate.replace(/-/g, "")}`,
+      date: targetDate,
+      totalDue,
+      totalCollected,
+      shortfall,
+      collectionRate,
+      cashAmount: cAmount,
+      cashCount: cCount,
+      upiAmount: uAmount,
+      upiCount: uCount,
+      bankAmount: bAmount,
+      bankCount: bCount,
+      transactionsCount: dayPayments.length > 0 ? dayPayments.length : cCount + uCount + bCount,
+      visitsCount: dayVisits.length > 0 ? dayVisits.length : 8 + (d % 8),
+      status,
+      closedBy: isToday
+        ? "Pending Closing"
+        : d % 2 === 0
+        ? "Admin User (Cashier Register)"
+        : "Rajesh Kumar (Field Supervisor)",
+      closedAt: isToday ? "" : `${targetDate}T19:30:00.000Z`,
+      notes: isToday
+        ? undefined
+        : d % 3 === 0
+        ? "Physical cash verified with denomination sheet. Bank/UPI settled."
+        : "Reconciled with field collector receipts and cash vault handover.",
+    });
+  }
+
+  return closings;
+}
+
 export function buildAll() {
   const customers = buildCustomers();
   const accounts = buildAccounts(customers);
@@ -518,7 +600,8 @@ export function buildAll() {
   const visits = buildVisits(emis, loans);
   const limitHistory = buildLimitHistory(accounts, customers);
   const documents = buildDocuments(customers);
-  return { customers, accounts, loans, emis, payments, receipts, visits, limitHistory, documents };
+  const dailyClosings = buildDailyClosings(emis, payments, visits);
+  return { customers, accounts, loans, emis, payments, receipts, visits, limitHistory, documents, dailyClosings };
 }
 
 export const TODAY_ISO = TODAY;

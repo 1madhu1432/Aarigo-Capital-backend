@@ -20,6 +20,10 @@ import {
   FileCheck,
   RotateCcw,
   Filter,
+  History,
+  ArrowLeft,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { collectionPriorityScore, resolveCurrentEmi, useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, todayISO, addDays } from "@/lib/format";
@@ -45,6 +49,8 @@ export const Route = createFileRoute("/collection")({
     emiId: typeof search.emiId === "string" ? search.emiId : undefined,
     day: typeof search.day === "string" ? search.day : undefined,
     frequency: typeof search.frequency === "string" ? search.frequency : undefined,
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+    sub: typeof search.sub === "string" ? search.sub : undefined,
   }),
   component: CollectionPage,
 });
@@ -71,6 +77,9 @@ function CollectionPage() {
     today,
     payments,
     visits,
+    dailyClosings,
+    closeDay,
+    reopenDay,
     settings,
     admin,
   } = useStore();
@@ -78,7 +87,7 @@ function CollectionPage() {
   const searchParams = Route.useSearch();
 
   // Tab state: "collect", "route", "today", "closing"
-  const [activeTab, setActiveTab] = useState<string>("collect");
+  const [activeTab, setActiveTab] = useState<string>(searchParams.tab ?? "collect");
 
   // Day & Frequency Filter state
   const [selectedDay, setSelectedDay] = useState<string>(searchParams.day ?? today);
@@ -96,6 +105,14 @@ function CollectionPage() {
     ? "Tomorrow's"
     : `${fmtDate(selectedDay)}`;
 
+  // Closing tab sub-view: "history" (All Days) or "audit" (Selected Day)
+  const [closingSubView, setClosingSubView] = useState<"history" | "audit">(
+    searchParams.sub === "audit" ? "audit" : "history",
+  );
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>("");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
+  const [closingNotesInput, setClosingNotesInput] = useState<string>("");
+
   // Step state: 1=search, 2=customer, 3=payment, 5=success
   const [step, setStep] = useState(searchParams.customerId ? 2 : 1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -110,7 +127,7 @@ function CollectionPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync search parameters when navigated with customerId / loanId / emiId / day
+  // Sync search parameters when navigated with customerId / loanId / emiId / day / tab / sub
   useEffect(() => {
     if (searchParams.customerId) {
       setSelectedCustomerId(searchParams.customerId);
@@ -125,7 +142,21 @@ function CollectionPage() {
     if (searchParams.frequency) {
       setFrequencyFilter(searchParams.frequency);
     }
-  }, [searchParams.customerId, searchParams.loanId, searchParams.emiId, searchParams.day, searchParams.frequency]);
+    if (searchParams.tab) {
+      setActiveTab(searchParams.tab);
+    }
+    if (searchParams.sub === "history" || searchParams.sub === "audit") {
+      setClosingSubView(searchParams.sub);
+    }
+  }, [
+    searchParams.customerId,
+    searchParams.loanId,
+    searchParams.emiId,
+    searchParams.day,
+    searchParams.frequency,
+    searchParams.tab,
+    searchParams.sub,
+  ]);
 
   // Overpayment dialog state
   const [showOverpayDialog, setShowOverpayDialog] = useState(false);
@@ -386,6 +417,52 @@ function CollectionPage() {
   const totalDue = totalDueForDay;
   const collectionPct = collectionPctDay;
 
+  // ── Daily Closing and Historical Analysis (All Days) ───────────────────────
+  const filteredHistory = useMemo(() => {
+    return dailyClosings
+      .filter((c) => {
+        if (historyStatusFilter !== "all" && c.status !== historyStatusFilter) return false;
+        if (historySearchQuery.trim()) {
+          const q = historySearchQuery.toLowerCase();
+          const dateMatch = c.date.toLowerCase().includes(q) || fmtDate(c.date).toLowerCase().includes(q);
+          const userMatch = c.closedBy.toLowerCase().includes(q);
+          const notesMatch = c.notes ? c.notes.toLowerCase().includes(q) : false;
+          if (!dateMatch && !userMatch && !notesMatch) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [dailyClosings, historyStatusFilter, historySearchQuery]);
+
+  const historicalAggregates = useMemo(() => {
+    const totalTarget = dailyClosings.reduce((s, c) => s + c.totalDue, 0);
+    const totalCollected = dailyClosings.reduce((s, c) => s + c.totalCollected, 0);
+    const totalCash = dailyClosings.reduce((s, c) => s + c.cashAmount, 0);
+    const totalDigital = dailyClosings.reduce((s, c) => s + (c.upiAmount + c.bankAmount), 0);
+    const closedCount = dailyClosings.filter((c) => c.status === "Closed" || c.status === "Audited").length;
+    const avgRate = dailyClosings.length > 0
+      ? Math.round(dailyClosings.reduce((s, c) => s + c.collectionRate, 0) / dailyClosings.length)
+      : 0;
+
+    return {
+      totalTarget,
+      totalCollected,
+      totalCash,
+      totalDigital,
+      closedCount,
+      avgRate,
+    };
+  }, [dailyClosings]);
+
+  const selectedDayClosingRecord = useMemo(() => {
+    return dailyClosings.find((c) => c.date === selectedDay);
+  }, [dailyClosings, selectedDay]);
+
+  const isSelectedDayClosed =
+    selectedDayClosingRecord?.status === "Closed" ||
+    selectedDayClosingRecord?.status === "Audited" ||
+    dayClosed;
+
   // ── Route planner stops ───────────────────────────────────────────────────
   const routeStops = useMemo(() => {
     const stops: Array<{
@@ -580,7 +657,7 @@ function CollectionPage() {
           <TabsTrigger value="collect" className="text-xs">Collect EMI</TabsTrigger>
           <TabsTrigger value="route" className="text-xs">Route ({routeStops.length})</TabsTrigger>
           <TabsTrigger value="today" className="text-xs">Log ({dayPayments.length})</TabsTrigger>
-          <TabsTrigger value="closing" className="text-xs">Daily Closing</TabsTrigger>
+          <TabsTrigger value="closing" className="text-xs">Daily Closing ({dailyClosings.length})</TabsTrigger>
         </TabsList>
 
         {/* ==================================================================== */}
@@ -1560,116 +1637,559 @@ function CollectionPage() {
         </TabsContent>
 
         {/* ==================================================================== */}
-        {/* TAB 4: DAILY CLOSING */}
+        {/* TAB 4: DAILY CLOSING & ALL DAYS HISTORY */}
         {/* ==================================================================== */}
         <TabsContent value="closing" className="m-0 space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "Target / Expected", value: inr(totalDue) },
-              { label: "Total Collected", value: inr(totalToday), color: "text-emerald-600" },
-              { label: "Pending Shortfall", value: inr(Math.max(0, totalDue - totalToday)), color: totalDue - totalToday > 0 ? "text-amber-600" : "" },
-              { label: "Collection Rate", value: `${collectionPct}%`, color: collectionPct >= 80 ? "text-emerald-600" : "text-amber-600" },
-            ].map(({ label, value, color }) => (
-              <Card key={label} className="shadow-xs border-border">
-                <CardContent className="p-3.5">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
-                  <p className={`text-sm font-bold mt-0.5 ${color ?? ""}`}>{value}</p>
-                </CardContent>
-              </Card>
-            ))}
+          {/* Sub-view Switcher Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-border/80 bg-card/60 backdrop-blur-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold">
+                <History className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Cashier Daily Closing & Audit History</h3>
+                <p className="text-xs text-muted-foreground">Multi-day reconciliation register, physical vault handovers, and audit logs.</p>
+              </div>
+            </div>
+
+            {/* Sub-view toggle pills */}
+            <div className="flex items-center gap-1.5 p-1 rounded-lg bg-muted/60 border border-border/60 self-stretch sm:self-auto">
+              <Button
+                type="button"
+                size="sm"
+                variant={closingSubView === "history" ? "default" : "ghost"}
+                className="h-8 text-xs font-medium px-3 flex-1 sm:flex-initial cursor-pointer"
+                onClick={() => setClosingSubView("history")}
+              >
+                <History className="h-3.5 w-3.5 mr-1.5" />
+                Closing History ({dailyClosings.length} Days)
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={closingSubView === "audit" ? "default" : "ghost"}
+                className="h-8 text-xs font-medium px-3 flex-1 sm:flex-initial cursor-pointer"
+                onClick={() => setClosingSubView("audit")}
+              >
+                <FileCheck className="h-3.5 w-3.5 mr-1.5" />
+                Selected Day Audit ({fmtDate(selectedDay)})
+                {isSelectedDayClosed ? (
+                  <Badge className="ml-1.5 text-[9px] bg-emerald-500/20 text-emerald-600 border-emerald-500/40">Closed</Badge>
+                ) : (
+                  <Badge variant="outline" className="ml-1.5 text-[9px] border-amber-500/50 text-amber-600">Open</Badge>
+                )}
+              </Button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Payment Method Breakdown */}
-            <Card className="shadow-xs border-border">
-              <CardHeader className="p-4 pb-3 border-b border-border/60">
-                <CardTitle className="text-sm font-semibold">{dayNameLabel} Payment Method Audit</CardTitle>
-                <CardDescription className="text-xs">{fmtDate(selectedDay)}: Physical cash vs digital bank transfer</CardDescription>
-              </CardHeader>
-              <CardContent className="p-4 space-y-3 text-xs">
-                {[
-                  { method: "Cash (Handover Required)", amount: cashToday, count: todayPayments.filter((p) => p.method === "Cash").length },
-                  { method: "UPI (Direct to Account)", amount: upiToday, count: todayPayments.filter((p) => p.method === "UPI").length },
-                  { method: "Bank Transfer", amount: bankToday, count: todayPayments.filter((p) => p.method === "Bank").length },
-                ].map(({ method, amount, count }) => (
-                  <div key={method} className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
-                    <div>
-                      <div className="font-semibold text-foreground">{method}</div>
-                      <div className="text-[10px] text-muted-foreground">{count} transaction{count === 1 ? "" : "s"}</div>
-                    </div>
-                    <span className="font-mono font-bold text-xs">{inr(amount)}</span>
+          {closingSubView === "history" ? (
+            /* ============================================================== */
+            /* SUB-VIEW 1: ALL DAYS CLOSING HISTORY */
+            /* ============================================================== */
+            <div className="space-y-4">
+              {/* Aggregated KPI Metrics Across All Days */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <Card className="shadow-xs border-border/80">
+                  <CardContent className="p-3.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">All Days Collected</p>
+                    <p className="text-base font-bold font-mono text-emerald-600 mt-1">{inr(historicalAggregates.totalCollected)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Target: {inr(historicalAggregates.totalTarget)}</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-xs border-border/80">
+                  <CardContent className="p-3.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Physical Cash Handover</p>
+                    <p className="text-base font-bold font-mono text-amber-600 mt-1">{inr(historicalAggregates.totalCash)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Cash drawer vault</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-xs border-border/80">
+                  <CardContent className="p-3.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Digital / UPI / Bank</p>
+                    <p className="text-base font-bold font-mono text-blue-600 mt-1">{inr(historicalAggregates.totalDigital)}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Direct bank deposits</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-xs border-border/80">
+                  <CardContent className="p-3.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Avg Collection Rate</p>
+                    <p className="text-base font-bold font-mono text-foreground mt-1">{historicalAggregates.avgRate}%</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Across all recorded days</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-xs border-border/80 col-span-2 sm:col-span-1">
+                  <CardContent className="p-3.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Days Closed & Audited</p>
+                    <p className="text-base font-bold font-mono text-foreground mt-1">
+                      {historicalAggregates.closedCount} / {dailyClosings.length}
+                    </p>
+                    <p className="text-[10px] text-emerald-600 mt-0.5 font-medium">
+                      {dailyClosings.length - historicalAggregates.closedCount === 0 ? "All closed" : `${dailyClosings.length - historicalAggregates.closedCount} open day(s)`}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* History Search and Filter Controls */}
+              <Card className="shadow-xs border-border/80">
+                <CardHeader className="p-4 pb-3 border-b border-border/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-sm font-semibold">Daily Closing History Records</CardTitle>
+                    <CardDescription className="text-xs">Showing {filteredHistory.length} of {dailyClosings.length} total closing registers</CardDescription>
                   </div>
-                ))}
-                <div className="flex justify-between border-t border-border/60 pt-3 font-bold text-sm">
-                  <span>Grand Total</span>
-                  <span className="font-mono text-emerald-600">{inr(totalToday)}</span>
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Doorstep Visit Audit */}
-            <Card className="shadow-xs border-border">
-              <CardHeader className="p-4 pb-3 border-b border-border/60">
-                <CardTitle className="text-sm font-semibold">{dayNameLabel} Doorstep Visit Audit</CardTitle>
-                <CardDescription className="text-xs">{fmtDate(selectedDay)}: Visits performed vs unvisited customers</CardDescription>
-              </CardHeader>
-              <CardContent className="p-4 space-y-3 text-xs">
-                {(() => {
-                  const todayVisits = visits.filter((v) => v.date === selectedDay);
-                  const paidVisits = todayVisits.filter((v) => v.status === "Paid" || v.status === "Partially Paid").length;
-                  const notPaidVisits = todayVisits.filter((v) => v.status === "Not Paid").length;
-                  return (
-                    <div className="space-y-2.5">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Total Scheduled Stops:</span>
-                        <span className="font-mono font-semibold">{routeStops.length + todayVisits.length}</span>
-                      </div>
-                      <div className="flex justify-between text-emerald-600">
-                        <span>Collections Recorded:</span>
-                        <span className="font-mono font-semibold">{paidVisits}</span>
-                      </div>
-                      <div className="flex justify-between text-amber-600">
-                        <span>Unpaid Visits / PTP Taken:</span>
-                        <span className="font-mono font-semibold">{notPaidVisits}</span>
-                      </div>
-                      <div className="flex justify-between border-t border-border/60 pt-2 font-bold">
-                        <span>Pending Unvisited Stops:</span>
-                        <span className="font-mono text-destructive">{routeStops.length}</span>
-                      </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Search date, auditor, remarks..."
+                        value={historySearchQuery}
+                        onChange={(e) => setHistorySearchQuery(e.target.value)}
+                        className="pl-8 h-8 text-xs"
+                      />
+                      {historySearchQuery && (
+                        <button
+                          onClick={() => setHistorySearchQuery("")}
+                          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
-                  );
-                })()}
 
-                <div className="pt-3 border-t border-border/60 flex flex-col gap-2">
-                  {dayClosed ? (
-                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-xs flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      <div>
-                        <strong>Day Closed & Audited!</strong>
-                        <p className="text-[10px] mt-0.5">Summary locked by {admin.name} on {fmtDate(today)}.</p>
-                      </div>
+                    <Select value={historyStatusFilter} onValueChange={setHistoryStatusFilter}>
+                      <SelectTrigger className="h-8 text-xs w-[130px] bg-background">
+                        <SelectValue placeholder="All Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all" className="text-xs">All Statuses</SelectItem>
+                        <SelectItem value="Closed" className="text-xs">Closed</SelectItem>
+                        <SelectItem value="Audited" className="text-xs">Audited</SelectItem>
+                        <SelectItem value="Open" className="text-xs">Open</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs cursor-pointer"
+                      onClick={() => {
+                        setSelectedDay(today);
+                        setClosingSubView("audit");
+                      }}
+                    >
+                      <FileCheck className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
+                      Audit Today
+                    </Button>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="p-0">
+                  {filteredHistory.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-muted-foreground">
+                      No closing records match your filters.
                     </div>
                   ) : (
-                    <Button
-                      className="w-full text-xs h-10 cursor-pointer"
-                      onClick={() => setShowCloseDayModal(true)}
-                    >
-                      <FileCheck className="h-4 w-4 mr-2" />
-                      Close & Audit Day
-                    </Button>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-muted/50 border-b border-border text-[11px] font-medium text-muted-foreground">
+                          <tr>
+                            <th className="py-2.5 px-3.5 font-semibold">Date & Day</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Target Due</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Collected</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Shortfall</th>
+                            <th className="py-2.5 px-3 font-semibold text-center">Rate</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Cash Handover</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">UPI / Bank</th>
+                            <th className="py-2.5 px-2.5 font-semibold text-center">Txns / Visits</th>
+                            <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                            <th className="py-2.5 px-3 font-semibold">Audited By / Notes</th>
+                            <th className="py-2.5 px-3.5 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/60">
+                          {filteredHistory.map((closing) => {
+                            const isRowToday = closing.date === today;
+                            const isRowYesterday = closing.date === addDays(today, -1);
+                            const isClosed = closing.status === "Closed" || closing.status === "Audited";
+                            const dateObj = new Date(closing.date + "T00:00:00");
+                            const dayOfWeek = dateObj.toLocaleDateString("en-US", { weekday: "short" });
+
+                            return (
+                              <tr
+                                key={closing.id}
+                                className={`hover:bg-muted/30 transition-colors ${
+                                  closing.date === selectedDay ? "bg-primary/5 font-medium" : ""
+                                }`}
+                              >
+                                <td className="py-3 px-3.5 whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-foreground">{fmtDate(closing.date)}</span>
+                                    <span className="text-[10px] text-muted-foreground">({dayOfWeek})</span>
+                                    {isRowToday && (
+                                      <Badge className="text-[9px] bg-primary/20 text-primary border-primary/40 px-1 py-0">
+                                        Today
+                                      </Badge>
+                                    )}
+                                    {isRowYesterday && (
+                                      <Badge variant="outline" className="text-[9px] text-muted-foreground px-1 py-0">
+                                        Yesterday
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground font-mono">{closing.id}</div>
+                                </td>
+
+                                <td className="py-3 px-3 text-right font-mono text-muted-foreground whitespace-nowrap">
+                                  {inr(closing.totalDue)}
+                                </td>
+
+                                <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600 whitespace-nowrap">
+                                  {inr(closing.totalCollected)}
+                                </td>
+
+                                <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                                  {closing.shortfall > 0 ? (
+                                    <span className="text-amber-600 font-semibold">{inr(closing.shortfall)}</span>
+                                  ) : (
+                                    <span className="text-emerald-600">₹0</span>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-3 text-center whitespace-nowrap">
+                                  <Badge
+                                    className={`text-[10px] font-mono ${
+                                      closing.collectionRate >= 85
+                                        ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30"
+                                        : "bg-amber-500/15 text-amber-600 border-amber-500/30"
+                                    }`}
+                                  >
+                                    {closing.collectionRate}%
+                                  </Badge>
+                                </td>
+
+                                <td className="py-3 px-3 text-right whitespace-nowrap">
+                                  <div className="font-mono font-semibold text-foreground">{inr(closing.cashAmount)}</div>
+                                  <div className="text-[10px] text-muted-foreground">{closing.cashCount} cash txns</div>
+                                </td>
+
+                                <td className="py-3 px-3 text-right whitespace-nowrap">
+                                  <div className="font-mono font-semibold text-foreground">
+                                    {inr(closing.upiAmount + closing.bankAmount)}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {closing.upiCount + closing.bankCount} digital txns
+                                  </div>
+                                </td>
+
+                                <td className="py-3 px-2.5 text-center whitespace-nowrap text-[11px]">
+                                  <span className="font-mono">{closing.transactionsCount} txns</span>
+                                  <span className="text-muted-foreground mx-1">•</span>
+                                  <span className="text-muted-foreground">{closing.visitsCount} visits</span>
+                                </td>
+
+                                <td className="py-3 px-3 text-center whitespace-nowrap">
+                                  <StatusBadge status={closing.status} />
+                                </td>
+
+                                <td className="py-3 px-3 max-w-[220px]">
+                                  <div className="truncate font-medium text-foreground text-[11px]">{closing.closedBy}</div>
+                                  {closing.closedAt ? (
+                                    <div className="text-[10px] text-muted-foreground font-mono truncate">
+                                      {fmtDateTime(closing.closedAt)}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] text-amber-600 italic">Pending end-of-day closing</div>
+                                  )}
+                                  {closing.notes && (
+                                    <div className="text-[10px] text-muted-foreground italic truncate mt-0.5">
+                                      "{closing.notes}"
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-3.5 text-right whitespace-nowrap">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-[11px] px-2.5 cursor-pointer"
+                                      onClick={() => {
+                                        setSelectedDay(closing.date);
+                                        setClosingSubView("audit");
+                                      }}
+                                    >
+                                      View Audit →
+                                    </Button>
+
+                                    {isClosed ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 text-[10px] px-2 text-muted-foreground hover:text-amber-600 cursor-pointer"
+                                        title="Re-open this day for adjustments"
+                                        onClick={() => {
+                                          reopenDay(closing.date);
+                                          setDayClosed(false);
+                                        }}
+                                      >
+                                        <Unlock className="h-3 w-3" />
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        className="h-7 text-[10px] px-2.5 bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+                                        onClick={() => {
+                                          setSelectedDay(closing.date);
+                                          setShowCloseDayModal(true);
+                                        }}
+                                      >
+                                        <Lock className="h-3 w-3 mr-1" />
+                                        Close
+                                      </Button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            /* ============================================================== */
+            /* SUB-VIEW 2: SELECTED DAY AUDIT & CLOSING */
+            /* ============================================================== */
+            <div className="space-y-4">
+              {/* Selected Day Header with Back button */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg border border-border bg-muted/20">
+                <div className="flex items-center gap-2">
                   <Button
+                    size="sm"
                     variant="outline"
-                    className="w-full text-xs h-9 cursor-pointer"
-                    onClick={() => window.print()}
+                    className="h-8 text-xs cursor-pointer"
+                    onClick={() => setClosingSubView("history")}
                   >
-                    <Printer className="h-4 w-4 mr-2" />
-                    Print Daily Closing Sheet
+                    <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+                    Back to All Days History
+                  </Button>
+                  <div className="font-semibold text-sm text-foreground">
+                    Auditing Day: <span className="text-primary">{fmtDate(selectedDay)}</span> ({dayNameLabel})
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Change Day:</Label>
+                  <Input
+                    type="date"
+                    value={selectedDay}
+                    max={addDays(today, 30)}
+                    onChange={(e) => {
+                      if (e.target.value) setSelectedDay(e.target.value);
+                    }}
+                    className="h-8 text-xs w-[140px]"
+                  />
+                </div>
+              </div>
+
+              {/* Status Alert Banner */}
+              {isSelectedDayClosed ? (
+                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                        Daily Closing Completed & Locked
+                      </h4>
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">
+                        Cashier register for {fmtDate(selectedDay)} was locked by{" "}
+                        <span className="font-semibold">{selectedDayClosingRecord?.closedBy || admin.name}</span>
+                        {selectedDayClosingRecord?.closedAt && ` on ${fmtDateTime(selectedDayClosingRecord.closedAt)}`}.
+                      </p>
+                      {selectedDayClosingRecord?.notes && (
+                        <p className="text-[10px] text-muted-foreground italic mt-1">
+                          Remarks: "{selectedDayClosingRecord.notes}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 cursor-pointer"
+                      onClick={() => {
+                        reopenDay(selectedDay);
+                        setDayClosed(false);
+                      }}
+                    >
+                      <Unlock className="h-3 w-3 mr-1.5" />
+                      Re-open Day for Adjustment
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs cursor-pointer"
+                      onClick={() => window.print()}
+                    >
+                      <Printer className="h-3 w-3 mr-1.5" />
+                      Print Sheet
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                        Cashier Register Is Open
+                      </h4>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                        Collections are actively being received. Complete your physical cash count and lock daily closing when done.
+                      </p>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+                    onClick={() => setShowCloseDayModal(true)}
+                  >
+                    <FileCheck className="h-3.5 w-3.5 mr-1.5" />
+                    Confirm & Lock Day Closing
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+              )}
+
+              {/* 4 Summary Stat Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "Target / Expected", value: inr(totalDue) },
+                  { label: "Total Collected", value: inr(totalToday), color: "text-emerald-600" },
+                  {
+                    label: "Pending Shortfall",
+                    value: inr(Math.max(0, totalDue - totalToday)),
+                    color: totalDue - totalToday > 0 ? "text-amber-600" : "",
+                  },
+                  {
+                    label: "Collection Rate",
+                    value: `${collectionPct}%`,
+                    color: collectionPct >= 80 ? "text-emerald-600" : "text-amber-600",
+                  },
+                ].map(({ label, value, color }) => (
+                  <Card key={label} className="shadow-xs border-border">
+                    <CardContent className="p-3.5">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
+                      <p className={`text-sm font-bold mt-0.5 ${color ?? ""}`}>{value}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Payment Method Breakdown */}
+                <Card className="shadow-xs border-border">
+                  <CardHeader className="p-4 pb-3 border-b border-border/60">
+                    <CardTitle className="text-sm font-semibold">{dayNameLabel} Payment Method Audit</CardTitle>
+                    <CardDescription className="text-xs">{fmtDate(selectedDay)}: Physical cash vs digital bank transfer</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-3 text-xs">
+                    {[
+                      { method: "Cash (Handover Required)", amount: cashToday, count: todayPayments.filter((p) => p.method === "Cash").length },
+                      { method: "UPI (Direct to Account)", amount: upiToday, count: todayPayments.filter((p) => p.method === "UPI").length },
+                      { method: "Bank Transfer", amount: bankToday, count: todayPayments.filter((p) => p.method === "Bank").length },
+                    ].map(({ method, amount, count }) => (
+                      <div key={method} className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
+                        <div>
+                          <div className="font-semibold text-foreground">{method}</div>
+                          <div className="text-[10px] text-muted-foreground">{count} transaction{count === 1 ? "" : "s"}</div>
+                        </div>
+                        <span className="font-mono font-bold text-xs">{inr(amount)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between border-t border-border/60 pt-3 font-bold text-sm">
+                      <span>Grand Total</span>
+                      <span className="font-mono text-emerald-600">{inr(totalToday)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Doorstep Visit Audit */}
+                <Card className="shadow-xs border-border">
+                  <CardHeader className="p-4 pb-3 border-b border-border/60">
+                    <CardTitle className="text-sm font-semibold">{dayNameLabel} Doorstep Visit Audit</CardTitle>
+                    <CardDescription className="text-xs">{fmtDate(selectedDay)}: Visits performed vs unvisited customers</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-3 text-xs">
+                    {(() => {
+                      const todayVisits = visits.filter((v) => v.date === selectedDay);
+                      const paidVisits = todayVisits.filter((v) => v.status === "Paid" || v.status === "Partially Paid").length;
+                      const notPaidVisits = todayVisits.filter((v) => v.status === "Not Paid").length;
+                      return (
+                        <div className="space-y-2.5">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Total Scheduled Stops:</span>
+                            <span className="font-mono font-semibold">{routeStops.length + todayVisits.length}</span>
+                          </div>
+                          <div className="flex justify-between text-emerald-600">
+                            <span>Collections Recorded:</span>
+                            <span className="font-mono font-semibold">{paidVisits}</span>
+                          </div>
+                          <div className="flex justify-between text-amber-600">
+                            <span>Unpaid Visits / PTP Taken:</span>
+                            <span className="font-mono font-semibold">{notPaidVisits}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-border/60 pt-2 font-bold">
+                            <span>Pending Unvisited Stops:</span>
+                            <span className="font-mono text-destructive">{routeStops.length}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="pt-3 border-t border-border/60 flex flex-col gap-2">
+                      {isSelectedDayClosed ? (
+                        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-xs flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 shrink-0" />
+                          <div>
+                            <strong>Day Closed & Audited!</strong>
+                            <p className="text-[10px] mt-0.5">Summary locked by {selectedDayClosingRecord?.closedBy || admin.name}.</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          className="w-full text-xs h-10 cursor-pointer"
+                          onClick={() => setShowCloseDayModal(true)}
+                        >
+                          <FileCheck className="h-4 w-4 mr-2" />
+                          Close & Audit Day
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        className="w-full text-xs h-9 cursor-pointer"
+                        onClick={() => window.print()}
+                      >
+                        <Printer className="h-4 w-4 mr-2" />
+                        Print Daily Closing Sheet
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -1933,8 +2453,18 @@ function CollectionPage() {
                 <span className="font-mono text-emerald-600">{inr(totalToday)}</span>
               </div>
             </div>
+            <div>
+              <Label className="text-xs">Closing Remarks / Audit Notes</Label>
+              <Textarea
+                rows={2}
+                value={closingNotesInput}
+                onChange={(e) => setClosingNotesInput(e.target.value)}
+                placeholder="Physical cash verified against denomination sheet..."
+                className="mt-1 text-xs"
+              />
+            </div>
             <p className="text-[11px] text-muted-foreground">
-              Closing will timestamp this audit in the local daily closing register.
+              Closing will timestamp this audit into the permanent multi-day closing register.
             </p>
           </div>
           <DialogFooter className="gap-2">
@@ -1945,6 +2475,11 @@ function CollectionPage() {
               size="sm"
               className="text-xs cursor-pointer bg-emerald-600 hover:bg-emerald-700"
               onClick={() => {
+                closeDay({
+                  date: selectedDay,
+                  notes: closingNotesInput || "Cash drawer reconciled and closed.",
+                  status: "Closed",
+                });
                 setDayClosed(true);
                 setShowCloseDayModal(false);
               }}

@@ -281,3 +281,25 @@ export interface Settings {
   notifyDailySummary: boolean;
 }
 
+export interface DailyClosing {
+  id: string;
+  date: string;
+  totalDue: number;
+  totalCollected: number;
+  shortfall: number;
+  collectionRate: number;
+  cashAmount: number;
+  cashCount: number;
+  upiAmount: number;
+  upiCount: number;
+  bankAmount: number;
+  bankCount: number;
+  transactionsCount: number;
+  visitsCount: number;
+  status: "Closed" | "Audited" | "Open";
+  closedBy: string;
+  closedAt: string;
+  notes?: string;
+}
+
+
