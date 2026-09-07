@@ -42,8 +42,8 @@ function DashboardPage() {
   const { customers, loans, emis, payments, visits, today, settings } = useStore();
   const navigate = useNavigate();
 
-  // Day & Frequency Filter state
-  const [selectedDay, setSelectedDay] = useState<string>(today);
+  // Day & Frequency Filter state: 'all' or specific ISO date string
+  const [selectedDay, setSelectedDay] = useState<string | "all">(today);
   const [frequencyFilter, setFrequencyFilter] = useState<string>("all");
 
   // Filtered dataset according to selected repayment frequency
@@ -96,11 +96,14 @@ function DashboardPage() {
 
   const totalOutstanding = portfolioOutstanding.total;
 
-  // Day calculations
+  // Day calculations (support 'all' and day-wise)
+  const isAll = selectedDay === "all";
   const isToday = selectedDay === today;
   const isYesterday = selectedDay === addDays(today, -1);
   const isTomorrow = selectedDay === addDays(today, 1);
-  const dayNameLabel = isToday
+  const dayNameLabel = isAll
+    ? "All Time"
+    : isToday
     ? "Today's"
     : isYesterday
     ? "Yesterday's"
@@ -108,30 +111,34 @@ function DashboardPage() {
     ? "Tomorrow's"
     : `${fmtDate(selectedDay)}`;
 
-  const dueSelectedDayEmis = useMemo(
-    () => filteredEmis.filter((e) => e.dueDate === selectedDay),
-    [filteredEmis, selectedDay]
-  );
+  const dueSelectedDayEmis = useMemo(() => {
+    if (isAll) return filteredEmis;
+    return filteredEmis.filter((e) => e.dueDate === selectedDay);
+  }, [filteredEmis, selectedDay, isAll]);
+
   const totalDueSelectedDay = useMemo(
     () => dueSelectedDayEmis.reduce((sum, e) => sum + e.amount, 0),
     [dueSelectedDayEmis]
   );
 
-  const selectedDayPayments = useMemo(
-    () => filteredPayments.filter((p) => p.date.slice(0, 10) === selectedDay),
-    [filteredPayments, selectedDay]
-  );
+  const selectedDayPayments = useMemo(() => {
+    if (isAll) return filteredPayments.filter((p) => !p.reversed);
+    return filteredPayments.filter((p) => p.date.slice(0, 10) === selectedDay && !p.reversed);
+  }, [filteredPayments, selectedDay, isAll]);
+
   const totalCollectedSelectedDay = useMemo(
     () => selectedDayPayments.reduce((sum, p) => sum + p.amount, 0),
     [selectedDayPayments]
   );
 
-  const pendingSelectedDay = Math.max(0, totalDueSelectedDay - totalCollectedSelectedDay);
+  const pendingSelectedDay = isAll
+    ? filteredEmis.reduce((sum, e) => sum + Math.max(0, e.amount - e.paid), 0)
+    : Math.max(0, totalDueSelectedDay - totalCollectedSelectedDay);
 
   // Month-to-date calculation for selected day's month
-  const currentMonthPrefix = selectedDay.slice(0, 7);
+  const currentMonthPrefix = (isAll ? today : selectedDay).slice(0, 7);
   const monthPayments = useMemo(
-    () => filteredPayments.filter((p) => p.date.slice(0, 7) === currentMonthPrefix),
+    () => filteredPayments.filter((p) => p.date.slice(0, 7) === currentMonthPrefix && !p.reversed),
     [filteredPayments, currentMonthPrefix]
   );
   const totalCollectedMonth = useMemo(
@@ -239,10 +246,21 @@ function DashboardPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mr-1">
             <Calendar className="h-4 w-4 text-primary" />
-            <span>Day Filter:</span>
+            <span>Day / All Filter:</span>
           </div>
 
           <div className="inline-flex rounded-lg border border-border/80 p-0.5 bg-muted/40">
+            <button
+              type="button"
+              onClick={() => setSelectedDay("all")}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isAll
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              All
+            </button>
             <button
               type="button"
               onClick={() => setSelectedDay(today)}
@@ -281,10 +299,11 @@ function DashboardPage() {
           <div className="flex items-center gap-1.5">
             <Input
               type="date"
-              value={selectedDay}
+              value={isAll ? "" : selectedDay}
               onChange={(e) => {
                 if (e.target.value) setSelectedDay(e.target.value);
               }}
+              placeholder="Custom Date"
               className="h-8 text-xs w-[140px] px-2 bg-background"
             />
             {!isToday && (
@@ -296,7 +315,7 @@ function DashboardPage() {
                 title="Reset to today"
               >
                 <RotateCcw className="h-3 w-3 mr-1" />
-                Reset
+                Today
               </Button>
             )}
           </div>
@@ -549,10 +568,12 @@ function DashboardPage() {
           <CardHeader className="p-4 md:p-5 flex flex-row items-center justify-between border-b border-border/60">
             <div>
               <CardTitle className="text-sm md:text-base font-semibold">
-                {isToday ? "Today's EMIs to Collect" : `EMIs to Collect (${dayNameLabel})`}
+                {isAll ? "All Scheduled EMIs" : isToday ? "Today's EMIs to Collect" : `EMIs to Collect (${dayNameLabel})`}
               </CardTitle>
               <CardDescription className="text-xs text-muted-foreground">
-                Borrowers with repayments scheduled for {isToday ? "today" : dayNameLabel} ({fmtDate(selectedDay)})
+                {isAll
+                  ? `Borrowers with scheduled repayments across all dates`
+                  : `Borrowers with repayments scheduled for ${isToday ? "today" : dayNameLabel} (${fmtDate(selectedDay)})`}
                 {frequencyFilter !== "all" && ` • ${frequencyFilter} loans only`}
               </CardDescription>
             </div>
@@ -563,7 +584,7 @@ function DashboardPage() {
           <CardContent className="p-0">
             {dueSelectedDayEmis.length === 0 ? (
               <div className="p-8 text-center text-xs text-muted-foreground">
-                No EMIs are due on {isToday ? "today" : dayNameLabel} ({fmtDate(selectedDay)}).
+                {isAll ? "No EMIs found in portfolio." : `No EMIs are due on ${isToday ? "today" : dayNameLabel} (${fmtDate(selectedDay)}).`}
               </div>
             ) : (
               <div className="divide-y divide-border/60">

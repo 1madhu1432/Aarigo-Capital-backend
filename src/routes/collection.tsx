@@ -89,15 +89,18 @@ function CollectionPage() {
   // Tab state: "collect", "route", "today", "closing"
   const [activeTab, setActiveTab] = useState<string>(searchParams.tab ?? "collect");
 
-  // Day & Frequency Filter state
-  const [selectedDay, setSelectedDay] = useState<string>(searchParams.day ?? today);
+  // Day & Frequency Filter state: 'all' or specific ISO date
+  const [selectedDay, setSelectedDay] = useState<string | "all">(searchParams.day ?? today);
   const [frequencyFilter, setFrequencyFilter] = useState<string>(searchParams.frequency ?? "all");
   const [routeFilter, setRouteFilter] = useState<"all" | "pending" | "overdue">("all");
 
+  const isAll = selectedDay === "all";
   const isToday = selectedDay === today;
   const isYesterday = selectedDay === addDays(today, -1);
   const isTomorrow = selectedDay === addDays(today, 1);
-  const dayNameLabel = isToday
+  const dayNameLabel = isAll
+    ? "All Time"
+    : isToday
     ? "Today's"
     : isYesterday
     ? "Yesterday's"
@@ -382,22 +385,23 @@ function CollectionPage() {
 
   const dueDayEmis = useMemo(() => {
     return frequencyFilteredEmis.filter((e) => {
+      if (isAll) return true;
       if (isToday) {
         return (e.dueDate === selectedDay || e.status === "Overdue") && e.paid < e.amount;
       }
       return e.dueDate === selectedDay;
     });
-  }, [frequencyFilteredEmis, selectedDay, isToday]);
+  }, [frequencyFilteredEmis, selectedDay, isToday, isAll]);
 
   const dayPayments = useMemo(() => {
     return payments.filter((p) => {
-      const matchDate = p.date.slice(0, 10) === selectedDay;
-      if (!matchDate || p.reversed) return false;
+      if (p.reversed) return false;
+      if (!isAll && p.date.slice(0, 10) !== selectedDay) return false;
       if (frequencyFilter === "all") return true;
       const loan = loans.find((l) => l.id === p.loanId);
       return loan?.frequency === frequencyFilter;
     });
-  }, [payments, selectedDay, frequencyFilter, loans]);
+  }, [payments, selectedDay, frequencyFilter, loans, isAll]);
 
   const totalDayCollected = useMemo(() => dayPayments.reduce((s, p) => s + p.amount, 0), [dayPayments]);
   const cashDay = useMemo(() => dayPayments.filter((p) => p.method === "Cash").reduce((s, p) => s + p.amount, 0), [dayPayments]);
@@ -518,10 +522,21 @@ function CollectionPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mr-1">
             <Calendar className="h-4 w-4 text-primary" />
-            <span>Day Filter:</span>
+            <span>Day / All Filter:</span>
           </div>
 
           <div className="inline-flex rounded-lg border border-border/80 p-0.5 bg-muted/40">
+            <button
+              type="button"
+              onClick={() => setSelectedDay("all")}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isAll
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              All
+            </button>
             <button
               type="button"
               onClick={() => setSelectedDay(today)}
@@ -560,10 +575,11 @@ function CollectionPage() {
           <div className="flex items-center gap-1.5">
             <Input
               type="date"
-              value={selectedDay}
+              value={isAll ? "" : selectedDay}
               onChange={(e) => {
                 if (e.target.value) setSelectedDay(e.target.value);
               }}
+              placeholder="Custom Date"
               className="h-8 text-xs w-[140px] px-2 bg-background"
             />
             {!isToday && (
@@ -575,7 +591,7 @@ function CollectionPage() {
                 title="Reset to today"
               >
                 <RotateCcw className="h-3 w-3 mr-1" />
-                Reset
+                Today
               </Button>
             )}
           </div>

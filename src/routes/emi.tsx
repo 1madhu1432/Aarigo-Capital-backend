@@ -71,6 +71,19 @@ function EmiPage() {
     paid: filtered.filter(({ e }) => e.status === "Paid"),
   };
 
+  // Summary KPI calculations for current filter (Day vs All)
+  const filteredTotalAmount = useMemo(() => filtered.reduce((s, { e }) => s + e.amount, 0), [filtered]);
+  const filteredPaidAmount = useMemo(() => filtered.reduce((s, { e }) => s + e.paid, 0), [filtered]);
+  const filteredPendingAmount = useMemo(() => filtered.reduce((s, { e }) => s + Math.max(0, e.amount - e.paid), 0), [filtered]);
+  const filteredOverdueAmount = useMemo(
+    () => filtered.filter(({ e }) => e.status === "Overdue").reduce((s, { e }) => s + Math.max(0, e.amount - e.paid), 0),
+    [filtered]
+  );
+  const filteredPaidCount = useMemo(() => filtered.filter(({ e }) => e.status === "Paid").length, [filtered]);
+  const filteredPendingCount = useMemo(() => filtered.filter(({ e }) => e.status !== "Paid").length, [filtered]);
+  const filteredOverdueCount = useMemo(() => filtered.filter(({ e }) => e.status === "Overdue").length, [filtered]);
+  const filteredCollectionRate = filteredTotalAmount > 0 ? Math.min(100, Math.round((filteredPaidAmount / filteredTotalAmount) * 100)) : 0;
+
   const totalOverdueLateFees = useMemo(() => {
     return byTab.overdue.reduce((sum, { e }) => {
       const calc = calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived), 1);
@@ -300,6 +313,98 @@ function EmiPage() {
             </Select>
           </div>
         </div>
+      </div>
+
+      {/* EMI Schedule Summary Cards (Filter Day & All) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                {dayFilter === "all" ? "Total Scheduled" : `Due (${dueTabLabel})`}
+              </span>
+              <Badge variant="outline" className="text-[9px] font-mono border-border">
+                {filtered.length} EMIs
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-foreground mt-1">{inr(filteredTotalAmount)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {dayFilter === "all" ? "All active schedules" : `Due date: ${activeDate ? fmtDate(activeDate) : "Today"}`}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                EMI Amount Paid
+              </span>
+              <Badge className="text-[9px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                {filteredPaidCount} Paid
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">{inr(filteredPaidAmount)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              <span className="font-semibold text-emerald-600">{filteredCollectionRate}%</span> recovered
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={`shadow-xs bg-gradient-to-br from-card ${filteredPendingAmount > 0 ? "border-amber-500/40 to-amber-500/5" : "border-border/80"}`}>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${filteredPendingAmount > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                EMI Amount Pending
+              </span>
+              <Badge variant="outline" className={`text-[9px] font-bold ${filteredPendingAmount > 0 ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10" : "border-border text-muted-foreground"}`}>
+                {filteredPendingCount} Pend.
+              </Badge>
+            </div>
+            <p className={`text-xl font-bold font-mono mt-1 ${filteredPendingAmount > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}`}>
+              {inr(filteredPendingAmount)}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Remaining to collect
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={`shadow-xs bg-gradient-to-br from-card ${filteredOverdueAmount > 0 ? "border-destructive/40 to-destructive/5" : "border-border/80"}`}>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${filteredOverdueAmount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                Overdue EMIs
+              </span>
+              <Badge variant="outline" className={`text-[9px] font-bold ${filteredOverdueAmount > 0 ? "border-destructive/40 text-destructive bg-destructive/10" : "border-border text-muted-foreground"}`}>
+                {filteredOverdueCount} Overdue
+              </Badge>
+            </div>
+            <p className={`text-xl font-bold font-mono mt-1 ${filteredOverdueAmount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+              {inr(filteredOverdueAmount)}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Principal + EMI in arrears
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                Late Fee Penalties
+              </span>
+              <Badge variant="outline" className="text-[9px] font-mono text-destructive border-destructive/30 bg-destructive/5">
+                Auto
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-destructive mt-1">{inr(totalOverdueLateFees)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Accrued late charges
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabs */}

@@ -11,9 +11,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
+  Calendar,
+  RotateCcw,
+  Banknote,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
-import { inr, fmtDate, todayISO } from "@/lib/format";
+import { inr, fmtDate, todayISO, addDays } from "@/lib/format";
 import type { VisitStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +46,8 @@ function VisitsPage() {
   const navigate = useNavigate();
   const today = todayISO();
   const [query, setQuery] = useState("");
+  const [dayFilter, setDayFilter] = useState<"all" | "today" | "yesterday" | "custom">("all");
+  const [selectedDate, setSelectedDate] = useState<string>(today);
   const [filterStatus, setFilterStatus] = useState("all");
   const [showRecordDialog, setShowRecordDialog] = useState(false);
   const [recordForm, setRecordForm] = useState({
@@ -57,6 +62,13 @@ function VisitsPage() {
     notes: "",
   });
 
+  const activeDate = useMemo(() => {
+    if (dayFilter === "today") return today;
+    if (dayFilter === "yesterday") return addDays(today, -1);
+    if (dayFilter === "custom") return selectedDate;
+    return null;
+  }, [dayFilter, today, selectedDate]);
+
   const visitsWithData = useMemo(() => {
     return visits.map((v) => {
       const cust = customers.find((c) => c.id === v.customerId);
@@ -67,6 +79,7 @@ function VisitsPage() {
 
   const filtered = useMemo(() => {
     return visitsWithData.filter(({ v, cust }) => {
+      if (activeDate && v.date !== activeDate) return false;
       const q = query.toLowerCase();
       const matchesQ =
         !q ||
@@ -77,7 +90,12 @@ function VisitsPage() {
       const matchesStatus = filterStatus === "all" || v.status === filterStatus;
       return matchesQ && matchesStatus;
     });
-  }, [visitsWithData, query, filterStatus]);
+  }, [visitsWithData, query, filterStatus, activeDate]);
+
+  // Aggregate metrics for cards
+  const totalCollectedOnVisits = useMemo(() => filtered.reduce((s, { v }) => s + (v.collected || 0), 0), [filtered]);
+  const paidVisitsCount = useMemo(() => filtered.filter(({ v }) => v.status === "Paid" || v.status === "Partially Paid").length, [filtered]);
+  const pendingVisitsCount = useMemo(() => filtered.filter(({ v }) => v.status === "Not Paid" || v.status === "Planned" || v.status === "Visited").length, [filtered]);
 
   const handleRecordVisit = () => {
     upsertVisit({
@@ -133,8 +151,8 @@ function VisitsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between">
+        <div className="relative flex-1 max-w-sm w-full">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search by customer, visit ID..."
@@ -148,19 +166,152 @@ function VisitsPage() {
             </button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {["all", "Planned", "Visited", "Paid", "Partially Paid", "Not Paid"].map((s) => (
-            <Button
-              key={s}
-              size="sm"
-              variant={filterStatus === s ? "default" : "outline"}
-              onClick={() => setFilterStatus(s)}
-              className="text-xs h-9 cursor-pointer"
+
+        {/* Day / All Filter */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-muted-foreground">Visit Day:</span>
+          <div className="inline-flex rounded-md border border-border/80 p-0.5 bg-muted/30">
+            <button
+              type="button"
+              onClick={() => setDayFilter("all")}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                dayFilter === "all" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
             >
-              {s === "all" ? "All" : s}
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDayFilter("today");
+                setSelectedDate(today);
+              }}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                dayFilter === "today" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDayFilter("yesterday");
+                setSelectedDate(addDays(today, -1));
+              }}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                dayFilter === "yesterday" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Yesterday
+            </button>
+          </div>
+          <Input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => {
+              if (e.target.value) {
+                setSelectedDate(e.target.value);
+                setDayFilter("custom");
+              }
+            }}
+            className="h-9 text-xs w-36"
+          />
+          {dayFilter !== "all" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDayFilter("all")}
+              className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+              title="Clear day filter"
+            >
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Clear
             </Button>
-          ))}
+          )}
         </div>
+      </div>
+
+      {/* Summary KPI Cards (Filter Day & All) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                {dayFilter === "all" ? "All Visits" : `Visits (${fmtDate(activeDate!)})`}
+              </span>
+              <Badge variant="outline" className="text-[9px] font-mono">
+                {filtered.length} Visits
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-foreground mt-1">{filtered.length}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {dayFilter === "all" ? "All scheduled visits" : `Scheduled for ${fmtDate(activeDate!)}`}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 uppercase tracking-wide font-semibold">
+                Collected on Doorstep
+              </span>
+              <Badge className="text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                Direct
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">{inr(totalCollectedOnVisits)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Field recovery collection
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Successful Visits</span>
+              <Badge variant="outline" className="text-[9px] text-emerald-600 border-emerald-500/30 bg-emerald-500/10">
+                Paid
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-emerald-600 mt-1">{paidVisitsCount}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Paid or partially collected
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Follow-ups / PTP</span>
+              <Badge variant="outline" className="text-[9px] text-amber-600 border-amber-500/30 bg-amber-500/10">
+                Pending
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-amber-600 mt-1">{pendingVisitsCount}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Unpaid / promise to pay
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Status Filter Badges */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+        <span className="text-xs text-muted-foreground mr-1">Status Filter:</span>
+        {["all", "Planned", "Visited", "Paid", "Partially Paid", "Not Paid"].map((s) => (
+          <Button
+            key={s}
+            size="sm"
+            variant={filterStatus === s ? "default" : "outline"}
+            onClick={() => setFilterStatus(s)}
+            className="text-xs h-8 cursor-pointer"
+          >
+            {s === "all" ? "All Statuses" : s}
+          </Button>
+        ))}
       </div>
 
       {/* Visits List */}

@@ -11,9 +11,14 @@ import {
   AlertTriangle,
   Printer,
   ShieldCheck,
+  Calendar,
+  RotateCcw,
+  Filter,
+  Coins,
 } from "lucide-react";
 import { useStore } from "@/store/app-store";
-import { inr, fmtDate } from "@/lib/format";
+import { inr, fmtDate, todayISO, addDays } from "@/lib/format";
+import { computeAmortizationSchedule } from "@/utils/amortization";
 import { EarlyCloseDialog } from "@/components/loans/EarlyCloseDialog";
 import { EmiSchedulePrintModal } from "@/components/loans/EmiSchedulePrintModal";
 import { Button } from "@/components/ui/button";
@@ -42,16 +47,34 @@ function LoansRouteComponent() {
 function LoansPage() {
   const { loans, customers, emis, payments } = useStore();
   const navigate = useNavigate();
+  const today = todayISO();
   const [query, setQuery] = useState("");
   const [frequencyFilter, setFrequencyFilter] = useState("all");
+  const [dayFilter, setDayFilter] = useState<"all" | "today" | "yesterday" | "custom">("all");
+  const [selectedDate, setSelectedDate] = useState<string>(today);
   const [activeTab, setActiveTab] = useState("active");
   const [printLoan, setPrintLoan] = useState<(typeof loans)[0] | null>(null);
   const [earlyCloseLoan, setEarlyCloseLoan] = useState<(typeof loans)[0] | null>(null);
+
+  const activeDate = useMemo(() => {
+    if (dayFilter === "today") return today;
+    if (dayFilter === "yesterday") return addDays(today, -1);
+    if (dayFilter === "custom") return selectedDate;
+    return null;
+  }, [dayFilter, today, selectedDate]);
 
   const filtered = useMemo(() => {
     let result = loans;
     if (frequencyFilter !== "all") {
       result = result.filter((l) => l.frequency === frequencyFilter);
+    }
+    if (activeDate) {
+      result = result.filter((l) => {
+        const matchesStart = l.startDate === activeDate;
+        const matchesEmiDue = emis.some((e) => e.loanId === l.id && e.dueDate === activeDate);
+        const matchesPayment = payments.some((p) => p.loanId === l.id && p.date.slice(0, 10) === activeDate && !p.reversed);
+        return matchesStart || matchesEmiDue || matchesPayment;
+      });
     }
     if (!query) return result;
     const q = query.toLowerCase();
@@ -63,7 +86,54 @@ function LoansPage() {
         l.customerId.toLowerCase().includes(q);
       return matchesQ;
     });
-  }, [loans, customers, query, frequencyFilter]);
+  }, [loans, customers, emis, payments, query, frequencyFilter, activeDate]);
+
+  const loanMetrics = useMemo(() => {
+    let totalPrincipal = 0;
+    let totalNetDisbursed = 0;
+    let totalPrincipalPaid = 0;
+    let totalPrincipalPending = 0;
+    let totalEmiPaid = 0;
+    let totalEmiPending = 0;
+    let totalPaidEmisCount = 0;
+    let totalPendingEmisCount = 0;
+
+    filtered.forEach((l) => {
+      const isClosedEarly = l.status === "Closed Early" || Boolean(l.earlyClosure);
+      const sched = computeAmortizationSchedule(l, emis, payments);
+      const loanEmis = emis.filter((e) => e.loanId === l.id);
+      const loanPayments = payments.filter((p) => p.loanId === l.id && !p.reversed);
+
+      const pPaid = isClosedEarly ? l.principal : (sched?.totalPrincipalPaid ?? 0);
+      const pPend = isClosedEarly ? 0 : Math.max(0, l.principal - pPaid);
+      const ePaid = loanPayments.reduce((s, p) => s + p.amount, 0);
+      const ePend = isClosedEarly ? 0 : Math.max(0, l.totalPayable - ePaid);
+
+      totalPrincipal += l.principal;
+      totalNetDisbursed += Math.max(0, l.principal - (l.processingFee ?? 0) - (l.insurance ?? 0));
+      totalPrincipalPaid += pPaid;
+      totalPrincipalPending += pPend;
+      totalEmiPaid += ePaid;
+      totalEmiPending += ePend;
+
+      totalPaidEmisCount += loanEmis.filter((e) => e.status === "Paid").length;
+      totalPendingEmisCount += loanEmis.filter((e) => e.status !== "Paid").length;
+    });
+
+    const principalPaidPct = totalPrincipal > 0 ? Math.min(100, Math.round((totalPrincipalPaid / totalPrincipal) * 100)) : 0;
+
+    return {
+      totalPrincipal,
+      totalNetDisbursed,
+      totalPrincipalPaid,
+      totalPrincipalPending,
+      totalEmiPaid,
+      totalEmiPending,
+      totalPaidEmisCount,
+      totalPendingEmisCount,
+      principalPaidPct,
+    };
+  }, [filtered, emis, payments]);
 
   const byStatus = {
     active: filtered.filter((l) => l.status === "Active"),
@@ -204,8 +274,8 @@ function LoansPage() {
         </div>
       </div>
 
-      {/* Search and Frequency Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+      {/* Search, Day & Frequency Filter */}
+      <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between">
         <div className="relative flex-1 max-w-sm w-full">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -224,20 +294,187 @@ function LoansPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Frequency:</span>
-          <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
-            <SelectTrigger className="h-9 text-xs w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
-              <SelectItem value="Daily" className="text-xs">Daily (Day)</SelectItem>
-              <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
-              <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Day / All Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Day:</span>
+            <div className="inline-flex rounded-md border border-border/80 p-0.5 bg-muted/30">
+              <button
+                type="button"
+                onClick={() => setDayFilter("all")}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "all" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDayFilter("today");
+                  setSelectedDate(today);
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "today" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDayFilter("yesterday");
+                  setSelectedDate(addDays(today, -1));
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                  dayFilter === "yesterday" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Yesterday
+              </button>
+            </div>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setSelectedDate(e.target.value);
+                  setDayFilter("custom");
+                }
+              }}
+              className="h-9 text-xs w-36"
+            />
+            {dayFilter !== "all" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDayFilter("all")}
+                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Clear day filter"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Frequency:</span>
+            <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+              <SelectTrigger className="h-9 text-xs w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
+                <SelectItem value="Daily" className="text-xs">Daily (Day)</SelectItem>
+                <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+                <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+      </div>
+
+      {/* Primary Loan & Recovery Metric Cards (Filtered by Day & All) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {/* Card 1: Loan Amount */}
+        <Card className="shadow-xs border-border/80 bg-gradient-to-br from-card to-muted/20">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                {dayFilter === "all" ? "Total Portfolio" : `Disbursed / Due`}
+              </span>
+              <Badge variant="outline" className="text-[9px] font-mono border-primary/30 text-primary">
+                {filtered.length} Loans
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-foreground mt-1">{inr(loanMetrics.totalPrincipal)}</p>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5 pt-1.5 border-t border-border/50">
+              <span>Net Disbursed:</span>
+              <span className="font-mono font-semibold text-foreground">{inr(loanMetrics.totalNetDisbursed)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Principal Paid */}
+        <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                Principal Paid
+              </span>
+              <Badge className="text-[9px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                {loanMetrics.principalPaidPct}% Settled
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">{inr(loanMetrics.totalPrincipalPaid)}</p>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5 pt-1.5 border-t border-border/50">
+              <span>Status:</span>
+              <span className="font-semibold text-emerald-600">Principal recovered</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Principal Pending */}
+        <Card className={`shadow-xs bg-gradient-to-br from-card ${loanMetrics.totalPrincipalPending > 0 ? "border-amber-500/40 to-amber-500/5" : "border-border/80"}`}>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${loanMetrics.totalPrincipalPending > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                Principal Pending
+              </span>
+              <Badge variant="outline" className={`text-[9px] font-bold ${loanMetrics.totalPrincipalPending > 0 ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10" : "border-border text-muted-foreground"}`}>
+                {100 - loanMetrics.principalPaidPct}% Left
+              </Badge>
+            </div>
+            <p className={`text-xl font-bold font-mono mt-1 ${loanMetrics.totalPrincipalPending > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}`}>
+              {inr(loanMetrics.totalPrincipalPending)}
+            </p>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5 pt-1.5 border-t border-border/50">
+              <span>Status:</span>
+              <span className="font-semibold text-foreground">Outstanding balance</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 4: EMI Amount Paid */}
+        <Card className="shadow-xs border-emerald-500/30 bg-gradient-to-br from-card to-emerald-500/5">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                EMI Amount Paid
+              </span>
+              <Badge className="text-[9px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                {loanMetrics.totalPaidEmisCount} EMIs
+              </Badge>
+            </div>
+            <p className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">{inr(loanMetrics.totalEmiPaid)}</p>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5 pt-1.5 border-t border-border/50">
+              <span>Collection:</span>
+              <span className="font-semibold text-emerald-600">Total EMI received</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 5: EMI Amount Pending */}
+        <Card className={`shadow-xs bg-gradient-to-br from-card ${loanMetrics.totalEmiPending > 0 ? "border-amber-500/40 to-amber-500/5" : "border-border/80"}`}>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${loanMetrics.totalEmiPending > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+                EMI Amount Pending
+              </span>
+              <Badge variant="outline" className={`text-[9px] font-bold ${loanMetrics.totalEmiPending > 0 ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10" : "border-border text-muted-foreground"}`}>
+                {loanMetrics.totalPendingEmisCount} EMIs
+              </Badge>
+            </div>
+            <p className={`text-xl font-bold font-mono mt-1 ${loanMetrics.totalEmiPending > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}`}>
+              {inr(loanMetrics.totalEmiPending)}
+            </p>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5 pt-1.5 border-t border-border/50">
+              <span>Payable:</span>
+              <span className="font-semibold text-foreground">Total remaining</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabs */}
