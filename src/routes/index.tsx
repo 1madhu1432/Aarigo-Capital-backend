@@ -189,7 +189,13 @@ function DashboardPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            onClick={() => void navigate({ to: "/collection" })}
+            onClick={() => void navigate({
+              to: "/collection",
+              search: {
+                day: selectedDay,
+                frequency: frequencyFilter !== "all" ? frequencyFilter : undefined,
+              },
+            })}
             className="text-xs h-9 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm cursor-pointer"
           >
             <Banknote className="h-4 w-4 mr-1.5" />
@@ -216,7 +222,10 @@ function DashboardPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => void navigate({ to: "/visits" })}
+            onClick={() => void navigate({
+              to: "/visits",
+              search: { date: selectedDay },
+            })}
             className="text-xs h-9 cursor-pointer"
           >
             <Footprints className="h-3.5 w-3.5 mr-1.5" />
@@ -625,6 +634,7 @@ function DashboardPage() {
                                 customerId: customer?.id,
                                 loanId: e.loanId,
                                 emiId: e.id,
+                                day: selectedDay,
                               },
                             })}
                             className="h-7 text-[11px] px-2.5 cursor-pointer"
@@ -769,6 +779,7 @@ function DashboardPage() {
                           search: {
                             customerId: item.customer.id,
                             loanId: item.loanId,
+                            day: selectedDay,
                           },
                         })}
                         className="h-8 text-xs cursor-pointer px-2.5"

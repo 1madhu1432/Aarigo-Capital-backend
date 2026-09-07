@@ -19,6 +19,7 @@ import {
   Compass,
   FileCheck,
   RotateCcw,
+  Filter,
 } from "lucide-react";
 import { collectionPriorityScore, resolveCurrentEmi, useStore } from "@/store/app-store";
 import { inr, fmtDate, fmtDateTime, todayISO, addDays } from "@/lib/format";
@@ -42,6 +43,8 @@ export const Route = createFileRoute("/collection")({
     customerId: typeof search.customerId === "string" ? search.customerId : undefined,
     loanId: typeof search.loanId === "string" ? search.loanId : undefined,
     emiId: typeof search.emiId === "string" ? search.emiId : undefined,
+    day: typeof search.day === "string" ? search.day : undefined,
+    frequency: typeof search.frequency === "string" ? search.frequency : undefined,
   }),
   component: CollectionPage,
 });
@@ -77,6 +80,22 @@ function CollectionPage() {
   // Tab state: "collect", "route", "today", "closing"
   const [activeTab, setActiveTab] = useState<string>("collect");
 
+  // Day & Frequency Filter state
+  const [selectedDay, setSelectedDay] = useState<string>(searchParams.day ?? today);
+  const [frequencyFilter, setFrequencyFilter] = useState<string>(searchParams.frequency ?? "all");
+  const [routeFilter, setRouteFilter] = useState<"all" | "pending" | "overdue">("all");
+
+  const isToday = selectedDay === today;
+  const isYesterday = selectedDay === addDays(today, -1);
+  const isTomorrow = selectedDay === addDays(today, 1);
+  const dayNameLabel = isToday
+    ? "Today's"
+    : isYesterday
+    ? "Yesterday's"
+    : isTomorrow
+    ? "Tomorrow's"
+    : `${fmtDate(selectedDay)}`;
+
   // Step state: 1=search, 2=customer, 3=payment, 5=success
   const [step, setStep] = useState(searchParams.customerId ? 2 : 1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,7 +110,7 @@ function CollectionPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync search parameters when navigated with customerId / loanId / emiId
+  // Sync search parameters when navigated with customerId / loanId / emiId / day
   useEffect(() => {
     if (searchParams.customerId) {
       setSelectedCustomerId(searchParams.customerId);
@@ -100,7 +119,13 @@ function CollectionPage() {
       setStep(2);
       setActiveTab("collect");
     }
-  }, [searchParams.customerId, searchParams.loanId, searchParams.emiId]);
+    if (searchParams.day) {
+      setSelectedDay(searchParams.day);
+    }
+    if (searchParams.frequency) {
+      setFrequencyFilter(searchParams.frequency);
+    }
+  }, [searchParams.customerId, searchParams.loanId, searchParams.emiId, searchParams.day, searchParams.frequency]);
 
   // Overpayment dialog state
   const [showOverpayDialog, setShowOverpayDialog] = useState(false);
@@ -315,17 +340,51 @@ function CollectionPage() {
     setSearchQuery("");
   };
 
-  // ── Metrics for today ─────────────────────────────────────────────────────
-  const todayPayments = payments.filter((p) => p.date.slice(0, 10) === today && !p.reversed);
-  const totalToday = todayPayments.reduce((s, p) => s + p.amount, 0);
-  const cashToday = todayPayments.filter((p) => p.method === "Cash").reduce((s, p) => s + p.amount, 0);
-  const upiToday = todayPayments.filter((p) => p.method === "UPI").reduce((s, p) => s + p.amount, 0);
-  const bankToday = todayPayments.filter((p) => p.method === "Bank").reduce((s, p) => s + p.amount, 0);
+  // ── Metrics for selected day & frequency ──────────────────────────────────
+  const frequencyFilteredEmis = useMemo(() => {
+    if (frequencyFilter === "all") return emis;
+    return emis.filter((e) => {
+      const loan = loans.find((l) => l.id === e.loanId);
+      return loan?.frequency === frequencyFilter;
+    });
+  }, [emis, loans, frequencyFilter]);
 
-  const dueTodayEmis = emis.filter((e) => (e.dueDate === today || e.status === "Overdue") && e.paid < e.amount);
-  const totalDue = dueTodayEmis.reduce((s, e) => s + (e.amount - e.paid), 0);
-  const pendingCount = dueTodayEmis.length - todayPayments.length;
-  const collectionPct = totalDue > 0 ? Math.min(100, Math.round((totalToday / totalDue) * 100)) : 0;
+  const dueDayEmis = useMemo(() => {
+    return frequencyFilteredEmis.filter((e) => {
+      if (isToday) {
+        return (e.dueDate === selectedDay || e.status === "Overdue") && e.paid < e.amount;
+      }
+      return e.dueDate === selectedDay;
+    });
+  }, [frequencyFilteredEmis, selectedDay, isToday]);
+
+  const dayPayments = useMemo(() => {
+    return payments.filter((p) => {
+      const matchDate = p.date.slice(0, 10) === selectedDay;
+      if (!matchDate || p.reversed) return false;
+      if (frequencyFilter === "all") return true;
+      const loan = loans.find((l) => l.id === p.loanId);
+      return loan?.frequency === frequencyFilter;
+    });
+  }, [payments, selectedDay, frequencyFilter, loans]);
+
+  const totalDayCollected = useMemo(() => dayPayments.reduce((s, p) => s + p.amount, 0), [dayPayments]);
+  const cashDay = useMemo(() => dayPayments.filter((p) => p.method === "Cash").reduce((s, p) => s + p.amount, 0), [dayPayments]);
+  const upiDay = useMemo(() => dayPayments.filter((p) => p.method === "UPI").reduce((s, p) => s + p.amount, 0), [dayPayments]);
+  const bankDay = useMemo(() => dayPayments.filter((p) => p.method === "Bank").reduce((s, p) => s + p.amount, 0), [dayPayments]);
+
+  const totalDueForDay = useMemo(() => dueDayEmis.reduce((s, e) => s + Math.max(0, e.amount - e.paid), 0), [dueDayEmis]);
+  const collectionPctDay = totalDueForDay > 0 ? Math.min(100, Math.round((totalDayCollected / totalDueForDay) * 100)) : 0;
+
+  // Backward-compatible aliases for other components/tabs
+  const todayPayments = dayPayments;
+  const totalToday = totalDayCollected;
+  const cashToday = cashDay;
+  const upiToday = upiDay;
+  const bankToday = bankDay;
+  const dueTodayEmis = dueDayEmis;
+  const totalDue = totalDueForDay;
+  const collectionPct = collectionPctDay;
 
   // ── Route planner stops ───────────────────────────────────────────────────
   const routeStops = useMemo(() => {
@@ -336,7 +395,10 @@ function CollectionPage() {
       priority: number;
     }> = [];
 
-    dueTodayEmis.forEach((emi) => {
+    dueDayEmis.forEach((emi) => {
+      if (routeFilter === "pending" && (emi.status === "Paid" || emi.paid >= emi.amount)) return;
+      if (routeFilter === "overdue" && emi.status !== "Overdue") return;
+
       const cust = customers.find((c) => c.id === emi.customerId);
       const loan = loans.find((l) => l.id === emi.loanId);
       if (cust && loan) {
@@ -349,9 +411,8 @@ function CollectionPage() {
       }
     });
 
-    // Sort descending by collection priority
     return stops.sort((a, b) => b.priority - a.priority);
-  }, [dueTodayEmis, customers, loans, today]);
+  }, [dueDayEmis, customers, loans, today, routeFilter]);
 
   // Group route stops by Area
   const stopsByArea = useMemo(() => {
@@ -370,16 +431,155 @@ function CollectionPage() {
         <div>
           <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">Field Collection</h1>
           <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-            Doorstep EMI collection, route planner, overpayment handling & instant receipts
+            Day-wise doorstep EMI recovery, route planning, overpayment handling & instant receipts
           </p>
         </div>
+      </div>
+
+      {/* Day & Frequency Filter Bar */}
+      <div className="bg-card border border-border/80 rounded-xl p-3 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mr-1">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span>Day Filter:</span>
+          </div>
+
+          <div className="inline-flex rounded-lg border border-border/80 p-0.5 bg-muted/40">
+            <button
+              type="button"
+              onClick={() => setSelectedDay(today)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isToday
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDay(addDays(today, -1))}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isYesterday
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Yesterday
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDay(addDays(today, 1))}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                isTomorrow
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Tomorrow
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="date"
+              value={selectedDay}
+              onChange={(e) => {
+                if (e.target.value) setSelectedDay(e.target.value);
+              }}
+              className="h-8 text-xs w-[140px] px-2 bg-background"
+            />
+            {!isToday && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedDay(today)}
+                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Reset to today"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Reset
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Frequency & Status Filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Frequency:</span>
+            <Select value={frequencyFilter} onValueChange={setFrequencyFilter}>
+              <SelectTrigger className="h-8 text-xs w-[145px] bg-background">
+                <SelectValue placeholder="All Frequencies" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">All Frequencies</SelectItem>
+                <SelectItem value="Daily" className="text-xs">Daily (Day)</SelectItem>
+                <SelectItem value="Weekly" className="text-xs">Weekly</SelectItem>
+                <SelectItem value="Monthly" className="text-xs">Monthly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Select value={routeFilter} onValueChange={(v) => setRouteFilter(v as typeof routeFilter)}>
+            <SelectTrigger className="h-8 text-xs w-[130px] bg-background">
+              <SelectValue placeholder="All Stops" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All Repayments</SelectItem>
+              <SelectItem value="pending" className="text-xs">Pending Only</SelectItem>
+              <SelectItem value="overdue" className="text-xs">Overdue Only</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Day Overview Summary KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{dayNameLabel} Collected</p>
+              <Badge className="text-[9px] bg-emerald-500/15 text-emerald-600 border-emerald-500/30">
+                {collectionPctDay}% Target
+              </Badge>
+            </div>
+            <p className="text-lg font-bold font-mono text-emerald-600 mt-1">{inr(totalDayCollected)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{dayPayments.length} receipts</p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{dayNameLabel} Due</p>
+            <p className="text-lg font-bold font-mono text-foreground mt-1">{inr(totalDueForDay)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{dueDayEmis.length} installments</p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Cash Collections</p>
+            <p className="text-lg font-bold font-mono text-amber-600 mt-1">{inr(cashDay)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Physical cash in hand</p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs border-border/80">
+          <CardContent className="p-3.5">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Digital / UPI / Bank</p>
+            <p className="text-lg font-bold font-mono text-blue-600 mt-1">{inr(upiDay + bankDay)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Verified digital credits</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid grid-cols-4 max-w-lg">
           <TabsTrigger value="collect" className="text-xs">Collect EMI</TabsTrigger>
           <TabsTrigger value="route" className="text-xs">Route ({routeStops.length})</TabsTrigger>
-          <TabsTrigger value="today" className="text-xs">Log ({todayPayments.length})</TabsTrigger>
+          <TabsTrigger value="today" className="text-xs">Log ({dayPayments.length})</TabsTrigger>
           <TabsTrigger value="closing" className="text-xs">Daily Closing</TabsTrigger>
         </TabsList>
 
@@ -463,9 +663,92 @@ function CollectionPage() {
                 )}
 
                 {!searchQuery && (
-                  <div className="text-center py-6 text-xs text-muted-foreground">
-                    <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
-                    Enter customer details above or pick from the <strong className="text-foreground">Route Planner</strong> tab
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <div>
+                        <h3 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <Calendar className="h-3.5 w-3.5 text-primary" />
+                          {dayNameLabel} Scheduled Repayments ({dueDayEmis.length})
+                        </h3>
+                        <p className="text-[10px] text-muted-foreground">
+                          Installments due on {fmtDate(selectedDay)} {frequencyFilter !== "all" ? `• ${frequencyFilter} frequency` : ""}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] font-mono">
+                        Target: {inr(totalDueForDay)}
+                      </Badge>
+                    </div>
+
+                    {dueDayEmis.length === 0 ? (
+                      <div className="text-center py-6 text-xs text-muted-foreground">
+                        No EMIs scheduled for {fmtDate(selectedDay)}. Use the Day Filter above or search for a customer.
+                      </div>
+                    ) : (
+                      <div className="border border-border rounded-lg divide-y divide-border/60 overflow-hidden max-h-[420px] overflow-y-auto">
+                        {dueDayEmis.map((e) => {
+                          const cust = customers.find((c) => c.id === e.customerId);
+                          const loan = loans.find((l) => l.id === e.loanId);
+                          const isPaid = e.status === "Paid";
+                          const isOverdue = e.status === "Overdue";
+                          const rem = Math.max(0, e.amount - e.paid);
+                          const lateCalc = isOverdue ? calculateLateFee(e.dueDate, today, settings, false, 1) : null;
+
+                          return (
+                            <div
+                              key={e.id}
+                              className="flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-xs"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div
+                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                                  style={{ backgroundColor: `hsl(${cust?.photoHue ?? 200}, 65%, 45%)` }}
+                                >
+                                  {cust?.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-foreground">{cust?.name}</span>
+                                    <span className="text-[10px] font-mono text-muted-foreground">({e.loanId})</span>
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                                    <span>EMI #{e.emiNo}</span>
+                                    <span>•</span>
+                                    <span>{cust?.address.area}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <div className="text-right font-mono">
+                                  <div className="font-bold text-foreground">{inr(rem)}</div>
+                                  {lateCalc && lateCalc.lateFeeAmount > 0 && (
+                                    <div className="text-[9px] text-destructive font-medium">+{inr(lateCalc.lateFeeAmount)} fee</div>
+                                  )}
+                                </div>
+
+                                <StatusBadge status={e.status} size="sm" />
+
+                                <Button
+                                  size="sm"
+                                  disabled={isPaid}
+                                  onClick={() => {
+                                    if (cust) {
+                                      handleSelectCustomer(cust.id);
+                                      if (loan) setSelectedLoanId(loan.id);
+                                      setSelectedEmiId(e.id);
+                                      setStep(2);
+                                    }
+                                  }}
+                                  className="h-7 text-[10px] px-2.5 cursor-pointer"
+                                >
+                                  Collect
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -1300,8 +1583,8 @@ function CollectionPage() {
             {/* Payment Method Breakdown */}
             <Card className="shadow-xs border-border">
               <CardHeader className="p-4 pb-3 border-b border-border/60">
-                <CardTitle className="text-sm font-semibold">Payment Method Audit</CardTitle>
-                <CardDescription className="text-xs">Physical cash vs digital bank transfer</CardDescription>
+                <CardTitle className="text-sm font-semibold">{dayNameLabel} Payment Method Audit</CardTitle>
+                <CardDescription className="text-xs">{fmtDate(selectedDay)}: Physical cash vs digital bank transfer</CardDescription>
               </CardHeader>
               <CardContent className="p-4 space-y-3 text-xs">
                 {[
@@ -1327,12 +1610,12 @@ function CollectionPage() {
             {/* Doorstep Visit Audit */}
             <Card className="shadow-xs border-border">
               <CardHeader className="p-4 pb-3 border-b border-border/60">
-                <CardTitle className="text-sm font-semibold">Doorstep Visit Audit</CardTitle>
-                <CardDescription className="text-xs">Visits performed vs unvisited customers</CardDescription>
+                <CardTitle className="text-sm font-semibold">{dayNameLabel} Doorstep Visit Audit</CardTitle>
+                <CardDescription className="text-xs">{fmtDate(selectedDay)}: Visits performed vs unvisited customers</CardDescription>
               </CardHeader>
               <CardContent className="p-4 space-y-3 text-xs">
                 {(() => {
-                  const todayVisits = visits.filter((v) => v.date === today);
+                  const todayVisits = visits.filter((v) => v.date === selectedDay);
                   const paidVisits = todayVisits.filter((v) => v.status === "Paid" || v.status === "Partially Paid").length;
                   const notPaidVisits = todayVisits.filter((v) => v.status === "Not Paid").length;
                   return (
