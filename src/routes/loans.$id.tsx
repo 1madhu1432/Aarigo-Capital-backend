@@ -309,8 +309,9 @@ function LoanDetailPage() {
                 <tbody className="divide-y divide-border/60">
                   {(sched?.rows ?? []).map((r) => {
                     const isUnpaid = r.status === "Overdue" || r.status === "Pending" || r.status === "Partial" || r.status === "Due";
+                    const minDays = r.status === "Overdue" ? 1 : 0;
                     const lateCalc = isUnpaid
-                      ? calculateLateFee(r.dueDate, new Date().toISOString(), settings, r.lateFeeWaived)
+                      ? calculateLateFee(r.dueDate, new Date().toISOString(), settings, r.lateFeeWaived, minDays)
                       : null;
 
                     return (

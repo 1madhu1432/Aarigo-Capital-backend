@@ -38,7 +38,8 @@ function SettingsPage() {
     defaultInterestRate: settings.defaultInterestRate,
     defaultTenure: settings.defaultTenure,
     defaultFrequency: settings.defaultFrequency || ("Monthly" as EmiFrequency),
-    lateFeePerDay: settings.lateFeePerDay,
+    gracePeriodDays: settings.gracePeriodDays ?? 0,
+    lateFeePerDay: settings.lateFeePerDay ?? 20,
     receiptPrefix: settings.receiptPrefix,
     receiptFooter: settings.receiptFooter,
   });
@@ -202,12 +203,25 @@ function SettingsPage() {
                 />
               </div>
               <div className="space-y-1">
+                <Label htmlFor="gracePeriod" className="text-xs">Grace Period (Days)</Label>
+                <Input
+                  id="gracePeriod"
+                  type="number"
+                  min={0}
+                  value={form.gracePeriodDays}
+                  onChange={(e) => setForm({ ...form, gracePeriodDays: Math.max(0, Number(e.target.value)) })}
+                  className="text-xs h-9 font-mono"
+                  placeholder="0 (immediate charges)"
+                />
+              </div>
+              <div className="space-y-1">
                 <Label htmlFor="lateFee" className="text-xs">Late Fee / Day (₹)</Label>
                 <Input
                   id="lateFee"
                   type="number"
+                  min={0}
                   value={form.lateFeePerDay}
-                  onChange={(e) => setForm({ ...form, lateFeePerDay: Number(e.target.value) })}
+                  onChange={(e) => setForm({ ...form, lateFeePerDay: Math.max(0, Number(e.target.value)) })}
                   className="text-xs h-9 font-mono"
                 />
               </div>

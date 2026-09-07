@@ -351,11 +351,16 @@ export function calculateLateFee(
   dueDate: string,
   currentDate: string,
   settings: { gracePeriodDays?: number; lateFeePerDay?: number },
-  isWaived = false
+  isWaived = false,
+  minDaysOverdue?: number
 ): LateFeeCalculation {
-  const daysOverdue = Math.max(0, daysBetween(dueDate, currentDate));
+  const cleanDueDate = dueDate ? (dueDate.includes("T") ? dueDate.slice(0, 10) : dueDate.trim()) : "";
+  const cleanCurrentDate = currentDate ? (currentDate.includes("T") ? currentDate.slice(0, 10) : currentDate.trim()) : "";
+  const rawDays = Math.max(0, daysBetween(cleanDueDate, cleanCurrentDate));
+  const daysOverdue = minDaysOverdue !== undefined ? Math.max(rawDays, minDaysOverdue) : rawDays;
   const gracePeriodDays = Math.max(0, safe(settings?.gracePeriodDays));
-  const lateFeePerDay = Math.max(0, safe(settings?.lateFeePerDay));
+  // Default to 20 if unset or 0 so penalties calculate predictably
+  const lateFeePerDay = Math.max(0, safe(settings?.lateFeePerDay) || 20);
 
   if (isWaived || daysOverdue <= gracePeriodDays || lateFeePerDay <= 0) {
     return {

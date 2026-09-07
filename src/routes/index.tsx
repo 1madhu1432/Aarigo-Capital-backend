@@ -148,7 +148,7 @@ function DashboardPage() {
   const totalAccruedLateFees = useMemo(() => {
     const nowIso = new Date().toISOString();
     return overdueEmis.reduce((sum, e) => {
-      const lateCalc = calculateLateFee(e.dueDate, nowIso, settings, e.lateFeeWaived);
+      const lateCalc = calculateLateFee(e.dueDate, nowIso, settings, e.lateFeeWaived, 1);
       return sum + lateCalc.lateFeeAmount;
     }, 0);
   }, [overdueEmis, settings]);
@@ -166,7 +166,7 @@ function DashboardPage() {
       const existing = map.get(c.id) ?? { customer: c, overdueCount: 0, overdueTotal: 0, lateFeeTotal: 0, loanId: e.loanId };
       existing.overdueCount += 1;
       existing.overdueTotal += (e.amount - e.paid);
-      const lateCalc = calculateLateFee(e.dueDate, nowIso, settings, e.lateFeeWaived);
+      const lateCalc = calculateLateFee(e.dueDate, nowIso, settings, e.lateFeeWaived, 1);
       existing.lateFeeTotal += lateCalc.lateFeeAmount;
       map.set(c.id, existing);
     });
@@ -619,7 +619,14 @@ function DashboardPage() {
                           <Button
                             size="sm"
                             variant="default"
-                            onClick={() => void navigate({ to: "/collection" })}
+                            onClick={() => void navigate({
+                              to: "/collection",
+                              search: {
+                                customerId: customer?.id,
+                                loanId: e.loanId,
+                                emiId: e.id,
+                              },
+                            })}
                             className="h-7 text-[11px] px-2.5 cursor-pointer"
                           >
                             Collect
@@ -757,7 +764,13 @@ function DashboardPage() {
                       </a>
                       <Button
                         size="sm"
-                        onClick={() => void navigate({ to: "/collection" })}
+                        onClick={() => void navigate({
+                          to: "/collection",
+                          search: {
+                            customerId: item.customer.id,
+                            loanId: item.loanId,
+                          },
+                        })}
                         className="h-8 text-xs cursor-pointer px-2.5"
                       >
                         Collect

@@ -86,8 +86,12 @@ export function addMonths(iso: string, months: number): string {
 }
 
 export function daysBetween(a: string, b: string): number {
-  const d1 = new Date(a + "T00:00:00").getTime();
-  const d2 = new Date(b + "T00:00:00").getTime();
+  if (!a || !b) return 0;
+  const cleanA = a.includes("T") ? a.slice(0, 10) : a.trim();
+  const cleanB = b.includes("T") ? b.slice(0, 10) : b.trim();
+  const d1 = new Date(cleanA + "T00:00:00").getTime();
+  const d2 = new Date(cleanB + "T00:00:00").getTime();
+  if (isNaN(d1) || isNaN(d2)) return 0;
   return Math.round((d2 - d1) / 86_400_000);
 }
 

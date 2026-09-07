@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Banknote,
@@ -38,6 +38,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/collection")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    customerId: typeof search.customerId === "string" ? search.customerId : undefined,
+    loanId: typeof search.loanId === "string" ? search.loanId : undefined,
+    emiId: typeof search.emiId === "string" ? search.emiId : undefined,
+  }),
   component: CollectionPage,
 });
 
@@ -67,13 +72,17 @@ function CollectionPage() {
     admin,
   } = useStore();
   const navigate = useNavigate();
+  const searchParams = Route.useSearch();
+
+  // Tab state: "collect", "route", "today", "closing"
+  const [activeTab, setActiveTab] = useState<string>("collect");
 
   // Step state: 1=search, 2=customer, 3=payment, 5=success
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(searchParams.customerId ? 2 : 1);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
-  const [selectedLoanId, setSelectedLoanId] = useState<string>("");
-  const [selectedEmiId, setSelectedEmiId] = useState<string>("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(searchParams.customerId ?? "");
+  const [selectedLoanId, setSelectedLoanId] = useState<string>(searchParams.loanId ?? "");
+  const [selectedEmiId, setSelectedEmiId] = useState<string>(searchParams.emiId ?? "");
   const [payAmount, setPayAmount] = useState<string>("");
   const [payMethod, setPayMethod] = useState<PaymentMethod>("Cash");
   const [payNotes, setPayNotes] = useState<string>("");
@@ -81,6 +90,17 @@ function CollectionPage() {
   const [waiveLateFee, setWaiveLateFee] = useState<boolean>(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync search parameters when navigated with customerId / loanId / emiId
+  useEffect(() => {
+    if (searchParams.customerId) {
+      setSelectedCustomerId(searchParams.customerId);
+      if (searchParams.loanId) setSelectedLoanId(searchParams.loanId);
+      if (searchParams.emiId) setSelectedEmiId(searchParams.emiId);
+      setStep(2);
+      setActiveTab("collect");
+    }
+  }, [searchParams.customerId, searchParams.loanId, searchParams.emiId]);
 
   // Overpayment dialog state
   const [showOverpayDialog, setShowOverpayDialog] = useState(false);
@@ -149,17 +169,19 @@ function CollectionPage() {
   const targetRemaining = targetEmi ? Math.max(0, targetEmi.amount - targetEmi.paid) : 0;
 
   const lateFeeCalc = useMemo(() => {
-    if (!targetEmi || targetEmi.dueDate >= today) {
+    if (!targetEmi) {
       return {
         daysOverdue: 0,
         gracePeriodDays: settings.gracePeriodDays ?? 0,
         chargeableDays: 0,
-        lateFeePerDay: settings.lateFeePerDay ?? 0,
+        lateFeePerDay: settings.lateFeePerDay ?? 20,
         lateFeeAmount: 0,
         isWaived: false,
       };
     }
-    return calculateLateFee(targetEmi.dueDate, today, settings, waiveLateFee || Boolean(targetEmi.lateFeeWaived));
+    const isOverdue = targetEmi.status === "Overdue";
+    const minDays = isOverdue ? 1 : 0;
+    return calculateLateFee(targetEmi.dueDate, today, settings, waiveLateFee || Boolean(targetEmi.lateFeeWaived), minDays);
   }, [targetEmi, today, settings, waiveLateFee]);
 
   const accruedLateFee = lateFeeCalc.lateFeeAmount;
@@ -353,7 +375,7 @@ function CollectionPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="collect" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid grid-cols-4 max-w-lg">
           <TabsTrigger value="collect" className="text-xs">Collect EMI</TabsTrigger>
           <TabsTrigger value="route" className="text-xs">Route ({routeStops.length})</TabsTrigger>
@@ -557,7 +579,15 @@ function CollectionPage() {
                     <CardContent className="p-4 space-y-3 text-xs">
                       <div className="grid grid-cols-3 gap-2">
                         {/* Previous EMI */}
-                        <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 text-center">
+                        <div
+                          className={`p-2.5 rounded-lg border border-border/60 text-center transition-colors ${
+                            prevEmi ? "cursor-pointer hover:border-primary/60 hover:bg-muted/40" : "bg-muted/20"
+                          }`}
+                          onClick={() => {
+                            if (prevEmi) setSelectedEmiId(prevEmi.id);
+                          }}
+                          title={prevEmi ? "Click to switch to this installment" : undefined}
+                        >
                           <span className="text-[10px] text-muted-foreground uppercase font-semibold">Previous</span>
                           {prevEmi ? (
                             <div className="mt-1">
@@ -572,7 +602,7 @@ function CollectionPage() {
 
                         {/* Current Target EMI */}
                         <div className="p-2.5 rounded-lg border-2 border-primary bg-primary/5 text-center">
-                          <span className="text-[10px] text-primary uppercase font-bold">Current Due</span>
+                          <span className="text-[10px] text-primary uppercase font-bold">Selected Due</span>
                           {targetEmi ? (
                             <div className="mt-1">
                               <p className="font-mono font-bold text-foreground">#{targetEmi.emiNo}</p>
@@ -586,7 +616,15 @@ function CollectionPage() {
                         </div>
 
                         {/* Next EMI */}
-                        <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 text-center">
+                        <div
+                          className={`p-2.5 rounded-lg border border-border/60 text-center transition-colors ${
+                            nextEmi ? "cursor-pointer hover:border-primary/60 hover:bg-muted/40" : "bg-muted/20"
+                          }`}
+                          onClick={() => {
+                            if (nextEmi) setSelectedEmiId(nextEmi.id);
+                          }}
+                          title={nextEmi ? "Click to switch to this installment" : undefined}
+                        >
                           <span className="text-[10px] text-muted-foreground uppercase font-semibold">Next</span>
                           {nextEmi ? (
                             <div className="mt-1">
@@ -599,6 +637,23 @@ function CollectionPage() {
                           )}
                         </div>
                       </div>
+
+                      {allLoanEmis.length > 1 && (
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-border/50">
+                          <span className="text-muted-foreground text-[11px]">Pick Installment:</span>
+                          <select
+                            value={targetEmi?.id ?? ""}
+                            onChange={(e) => setSelectedEmiId(e.target.value)}
+                            className="text-xs font-mono bg-background border border-border rounded px-2 py-1 max-w-[260px]"
+                          >
+                            {allLoanEmis.map((e) => (
+                              <option key={e.id} value={e.id}>
+                                EMI #{e.emiNo} ({fmtDate(e.dueDate)}) - {e.status} • Rem {inr(Math.max(0, e.amount - e.paid))}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
                       {targetEmi && (
                         <div className="p-3 rounded-lg bg-muted/40 border border-border/60 space-y-1.5">
@@ -691,7 +746,7 @@ function CollectionPage() {
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
                   {/* Late EMI Charges & Waiver Box if overdue */}
-                  {targetEmi.dueDate < today && (
+                  {(targetEmi.status === "Overdue" || targetEmi.dueDate < today || lateFeeCalc.daysOverdue > 0) && (
                     <div className={`p-3 rounded-lg border text-xs space-y-2.5 transition-colors ${
                       waiveLateFee
                         ? "bg-muted/30 border-border/80"
@@ -1070,6 +1125,7 @@ function CollectionPage() {
                                     handleSelectCustomer(customer.id);
                                     setSelectedLoanId(loan.id);
                                     setSelectedEmiId(emi.id);
+                                    setActiveTab("collect");
                                   }}
                                 >
                                   Collect

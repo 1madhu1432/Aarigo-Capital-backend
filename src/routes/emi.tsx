@@ -73,17 +73,18 @@ function EmiPage() {
 
   const totalOverdueLateFees = useMemo(() => {
     return byTab.overdue.reduce((sum, { e }) => {
-      const calc = calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived));
+      const calc = calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived), 1);
       return sum + calc.lateFeeAmount;
     }, 0);
   }, [byTab.overdue, today, settings]);
 
   const EmiRow = ({ e, cust, loan }: (typeof emiWithData)[0]) => {
     const remaining = Math.max(0, e.amount - e.paid);
-    const isPastDue = (e.status === "Overdue" || e.status === "Partial") && e.dueDate < today;
-    const daysOverdue = isPastDue ? daysBetween(e.dueDate, today) : 0;
+    const isPastDue = e.status === "Overdue" || ((e.status === "Partial" || e.status === "Due") && e.dueDate < today);
+    const minDays = e.status === "Overdue" ? 1 : 0;
+    const daysOverdue = isPastDue ? Math.max(minDays, daysBetween(e.dueDate, today)) : 0;
     const lateFeeCalc = isPastDue
-      ? calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived))
+      ? calculateLateFee(e.dueDate, today, settings, Boolean(e.lateFeeWaived), minDays)
       : null;
     const lateFeeAmount = lateFeeCalc?.lateFeeAmount ?? 0;
     const totalDue = remaining + lateFeeAmount;
@@ -129,7 +130,14 @@ function EmiPage() {
               size="sm"
               variant="outline"
               className="h-7 text-[10px] px-2 cursor-pointer"
-              onClick={() => void navigate({ to: "/collection" })}
+              onClick={() => void navigate({
+                to: "/collection",
+                search: {
+                  customerId: cust?.id,
+                  loanId: e.loanId,
+                  emiId: e.id,
+                },
+              })}
             >
               <Banknote className="h-3 w-3 mr-1" />
               Collect

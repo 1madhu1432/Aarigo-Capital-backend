@@ -453,7 +453,7 @@ export const defaultSettings: Settings = {
   defaultInterestRate: 18,
   defaultTenure: 12,
   defaultFrequency: "Monthly",
-  gracePeriodDays: 3,
+  gracePeriodDays: 0,
   lateFeePerDay: 20,
   methods: { Cash: true, UPI: true, Bank: true },
   receiptFooter: "Thank you for your payment. This is a computer generated receipt.",
