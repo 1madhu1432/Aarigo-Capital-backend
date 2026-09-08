@@ -69,7 +69,7 @@ interface LocalAuditEvent {
 
 function SettingsPage() {
   const store = useStore();
-  const { settings, updateSettings, today, admin } = store;
+  const { settings, updateSettings, today, admin, loggedIn } = store;
   const { location } = useRouterState();
 
   const tabFromUrl = useMemo(() => {
@@ -140,6 +140,7 @@ function SettingsPage() {
   const [newUserRole, setNewUserRole] = useState("Field Officer");
 
   const fetchRemoteLogs = useCallback(async () => {
+    if (!loggedIn) return;
     setIsRefreshingLogs(true);
     try {
       const res = await auditLogsApi.getAll({ limit: 50 });
@@ -151,11 +152,13 @@ function SettingsPage() {
     } finally {
       setIsRefreshingLogs(false);
     }
-  }, []);
+  }, [loggedIn]);
 
   useEffect(() => {
-    fetchRemoteLogs();
-  }, [fetchRemoteLogs]);
+    if (loggedIn) {
+      void fetchRemoteLogs();
+    }
+  }, [loggedIn, fetchRemoteLogs]);
 
   // Log a real audit event both locally and to backend
   const recordAuditEvent = useCallback(

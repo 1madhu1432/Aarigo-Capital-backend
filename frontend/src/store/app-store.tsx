@@ -293,7 +293,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   // Restore authenticated session from backend token if present
   useEffect(() => {
-    const token = localStorage.getItem("aarigo_auth_token");
+    const rawToken = localStorage.getItem("aarigo_auth_token");
+    const token =
+      rawToken && rawToken !== "undefined" && rawToken !== "null" && rawToken.trim() !== ""
+        ? rawToken.trim()
+        : null;
+
     if (token) {
       authApi
         .getMe()
@@ -305,11 +310,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               name: user.name || prev.name,
               email: user.email || prev.email,
             }));
+          } else {
+            localStorage.removeItem("aarigo_auth_token");
+            setLoggedIn(false);
           }
         })
         .catch(() => {
           localStorage.removeItem("aarigo_auth_token");
+          setLoggedIn(false);
         });
+    } else {
+      if (rawToken) localStorage.removeItem("aarigo_auth_token");
+      setLoggedIn(false);
     }
   }, []);
   const [customers, setCustomers] = useState<Customer[]>(seed.customers);

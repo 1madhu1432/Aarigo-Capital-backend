@@ -1,7 +1,9 @@
 import http, { type ApiResponse } from '../http';
 
 export interface LoginRequest {
-  email: string;
+  username?: string;
+  email?: string;
+  mobile?: string;
   password: string;
 }
 
@@ -21,11 +23,24 @@ export interface LoginResponse {
 
 export const authApi = {
   login: async (credentials: LoginRequest | string, password?: string): Promise<ApiResponse<LoginResponse>> => {
-    const creds: LoginRequest =
+    const rawIdentifier = (
       typeof credentials === 'string'
-        ? { email: credentials, password: password || '' }
-        : credentials;
-    const res = await http.post<LoginResponse>('/auth/login', creds);
+        ? credentials
+        : (credentials.username || credentials.email || credentials.mobile || '')
+    ).trim();
+
+    const pwd = typeof credentials === 'string' ? (password || '') : credentials.password;
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawIdentifier);
+    const isMobile = /^\+?[0-9]{10,15}$/.test(rawIdentifier.replace(/[\s-]/g, ''));
+
+    const body: { username: string; password: string; email?: string; mobile?: string } = {
+      username: rawIdentifier,
+      password: pwd,
+    };
+    if (isEmail) body.email = rawIdentifier;
+    if (isMobile) body.mobile = rawIdentifier.replace(/[\s-]/g, '');
+
+    const res = await http.post<LoginResponse>('/auth/login', body);
     if (res.data?.token) {
       localStorage.setItem('aarigo_auth_token', res.data.token);
     }

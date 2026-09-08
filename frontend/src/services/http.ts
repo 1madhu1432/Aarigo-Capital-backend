@@ -50,7 +50,15 @@ export async function request<T = any>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('aarigo_auth_token') : null;
+  const rawToken = typeof window !== 'undefined' ? localStorage.getItem('aarigo_auth_token') : null;
+  const token =
+    rawToken && rawToken !== 'undefined' && rawToken !== 'null' && rawToken.trim() !== ''
+      ? rawToken.trim()
+      : null;
+
+  if (rawToken && !token && typeof window !== 'undefined') {
+    localStorage.removeItem('aarigo_auth_token');
+  }
 
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
