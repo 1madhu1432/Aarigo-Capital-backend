@@ -98,7 +98,7 @@ RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=500
 AUTH_RATE_LIMIT_MAX=10
 SEED_ADMIN_EMAIL=admin@aarigocapital.com
-SEED_ADMIN_PASSWORD=Aarigo@2026
+SEED_ADMIN_PASSWORD=CHANGE_THIS_SECURE_PASSWORD
 ```
 
 > **Security Notice**: Never commit `.env` or expose passwords in version control.

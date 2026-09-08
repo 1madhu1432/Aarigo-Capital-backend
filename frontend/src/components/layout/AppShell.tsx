@@ -4,7 +4,7 @@ import { AppSidebar } from "./AppSidebar";
 import { AppHeader } from "./AppHeader";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
-import { Lock, Mail, Eye, EyeOff, Building2, AlertCircle } from "lucide-react";
+import { Lock, Mail, Eye, EyeOff, Building2, AlertCircle, ShieldCheck } from "lucide-react";
 import { BrandBanner } from "@/components/ui/brand-logo";
 
 interface AppShellProps {

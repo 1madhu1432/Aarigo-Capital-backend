@@ -11,12 +11,22 @@ async function startServer(): Promise<void> {
   try {
     // Attempt DB connection
     logger.info('Connecting to database...');
+    let dbConnected = false;
     try {
       await prisma.$connect();
       logger.info('Database connection established successfully');
-      await AuthService.ensureInitialAdmin();
+      dbConnected = true;
     } catch (dbErr: any) {
       logger.warn(`Database connection warning: ${dbErr.message}. Starting HTTP server anyway...`);
+    }
+
+    if (dbConnected) {
+      try {
+        await AuthService.ensureInitialAdmin();
+      } catch (adminErr: any) {
+        logger.error(`Initial admin initialization failed: ${adminErr.message}`);
+        process.exit(1);
+      }
     }
 
     server = app.listen(env.PORT, () => {

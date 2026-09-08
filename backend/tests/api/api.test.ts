@@ -24,7 +24,7 @@ describe('Real Backend REST API Tests (Supertest + Express + MySQL)', () => {
   it('POST /api/auth/login should authenticate seeded admin and return JWT Bearer token', async () => {
     const res = await request(app).post('/api/auth/login').send({
       email: 'admin@aarigocapital.com',
-      password: process.env.SEED_ADMIN_PASSWORD || 'Aarigo@2026',
+      password: process.env.SEED_ADMIN_PASSWORD || 'TestAuthSecret!2026',
     });
 
     expect(res.status).toBe(200);

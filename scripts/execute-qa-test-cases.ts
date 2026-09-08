@@ -233,8 +233,9 @@ async function runTestSuite() {
   const existingUser = await prisma.user.findUnique({
     where: { email: 'admin@aarigocapital.com' },
   });
+  const qaPassword = process.env.SEED_ADMIN_PASSWORD || 'QA_Test_Password_123!';
   if (!existingUser) {
-    const passwordHash = await bcrypt.hash('Aarigo@2026', 10);
+    const passwordHash = await bcrypt.hash(qaPassword, 10);
     await prisma.user.create({
       data: {
         name: 'Super Admin QA',
@@ -256,7 +257,7 @@ async function runTestSuite() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       },
-      { email: 'admin@aarigocapital.com', password: 'Aarigo@2026' }
+      { email: 'admin@aarigocapital.com', password: qaPassword }
     );
     const pass = res.statusCode === 200 && res.body?.data?.token;
     if (pass) authToken = res.body.data.token;
@@ -291,7 +292,7 @@ async function runTestSuite() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       },
-      { email: 'notregistered@aarigo.com', password: 'Aarigo@2026' }
+      { email: 'notregistered@aarigo.com', password: qaPassword }
     );
     const pass = res.statusCode === 401;
     testResults.push({
