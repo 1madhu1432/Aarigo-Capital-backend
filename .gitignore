@@ -5,3 +5,4 @@ node_modules/
 dist/
 uploads/*
 !uploads/.gitkeep
+.git_backup
