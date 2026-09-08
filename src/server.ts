@@ -2,6 +2,7 @@ import { app } from './app';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { prisma } from './lib/prisma';
+import { AuthService } from './services/auth/auth.service';
 import http from 'http';
 
 let server: http.Server;
@@ -13,6 +14,7 @@ async function startServer(): Promise<void> {
     try {
       await prisma.$connect();
       logger.info('Database connection established successfully');
+      await AuthService.ensureInitialAdmin();
     } catch (dbErr: any) {
       logger.warn(`Database connection warning: ${dbErr.message}. Starting HTTP server anyway...`);
     }
