@@ -29,12 +29,23 @@ export const logger = winston.createLogger({
 // Never log sensitive fields
 export function sanitizeForLog(obj: Record<string, unknown>): Record<string, unknown> {
   const SENSITIVE = new Set([
-    'password', 'passwordHash', 'token', 'secret',
-    'authorization', 'jwt', 'refreshToken',
+    'password',
+    'passwordhash',
+    'jwt_secret',
+    'secret',
+    'token',
+    'accesstoken',
+    'access_token',
+    'refreshtoken',
+    'refresh_token',
+    'authorization',
+    'jwt',
+    'database_url',
+    'seed_admin_password',
   ]);
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    result[k] = SENSITIVE.has(k.toLowerCase()) ? '[REDACTED]' : v;
+    result[k] = SENSITIVE.has(k.toLowerCase().replace(/[-_]/g, '')) || SENSITIVE.has(k.toLowerCase()) ? '[REDACTED]' : v;
   }
   return result;
 }

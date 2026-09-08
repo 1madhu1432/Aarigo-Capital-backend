@@ -10,10 +10,13 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Starting database seed...');
 
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@aarigocapital.com';
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Aarigo@2026';
-  const adminName = process.env.SEED_ADMIN_NAME || 'System Administrator';
-  const adminMobile = process.env.SEED_ADMIN_MOBILE || '9876543210';
+  const adminEmail = (process.env.SEED_ADMIN_EMAIL || 'admin@aarigocapital.com').trim().toLowerCase();
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD?.trim();
+  if (!adminPassword) {
+    throw new Error('SEED_ADMIN_PASSWORD environment variable is required to seed the database.');
+  }
+  const adminName = (process.env.SEED_ADMIN_NAME || 'System Administrator').trim();
+  const adminMobile = (process.env.SEED_ADMIN_MOBILE || '9876543210').trim();
 
   // 1. Seed Admin User
   const passwordHash = await bcrypt.hash(adminPassword, 12);
