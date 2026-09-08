@@ -1,5 +1,5 @@
-﻿-- CreateTable
-CREATE TABLE `users` (
+-- CreateTable
+CREATE TABLE IF NOT EXISTS `users` (
     `id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(200) NOT NULL,
     `email` VARCHAR(255) NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE `users` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `customers` (
+CREATE TABLE IF NOT EXISTS `customers` (
     `id` VARCHAR(191) NOT NULL,
     `customerCode` VARCHAR(20) NOT NULL,
     `fullName` VARCHAR(200) NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE `customers` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `customer_documents` (
+CREATE TABLE IF NOT EXISTS `customer_documents` (
     `id` VARCHAR(191) NOT NULL,
     `customerId` VARCHAR(191) NOT NULL,
     `documentType` ENUM('AADHAAR', 'PAN', 'ADDRESS_PROOF', 'INCOME_PROOF', 'BANK_STATEMENT', 'PHOTO', 'OTHER') NOT NULL,
@@ -80,7 +80,7 @@ CREATE TABLE `customer_documents` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `loan_products` (
+CREATE TABLE IF NOT EXISTS `loan_products` (
     `id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(200) NOT NULL,
     `description` TEXT NULL,
@@ -100,7 +100,7 @@ CREATE TABLE `loan_products` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `loans` (
+CREATE TABLE IF NOT EXISTS `loans` (
     `id` VARCHAR(191) NOT NULL,
     `loanNumber` VARCHAR(20) NOT NULL,
     `customerId` VARCHAR(191) NOT NULL,
@@ -137,7 +137,7 @@ CREATE TABLE `loans` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `installments` (
+CREATE TABLE IF NOT EXISTS `installments` (
     `id` VARCHAR(191) NOT NULL,
     `loanId` VARCHAR(191) NOT NULL,
     `installmentNumber` INTEGER NOT NULL,
@@ -164,7 +164,7 @@ CREATE TABLE `installments` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `payments` (
+CREATE TABLE IF NOT EXISTS `payments` (
     `id` VARCHAR(191) NOT NULL,
     `paymentNumber` VARCHAR(30) NOT NULL,
     `loanId` VARCHAR(191) NOT NULL,
@@ -191,7 +191,7 @@ CREATE TABLE `payments` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `collections` (
+CREATE TABLE IF NOT EXISTS `collections` (
     `id` VARCHAR(191) NOT NULL,
     `loanId` VARCHAR(191) NOT NULL,
     `customerId` VARCHAR(191) NOT NULL,
@@ -212,7 +212,7 @@ CREATE TABLE `collections` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `receipts` (
+CREATE TABLE IF NOT EXISTS `receipts` (
     `id` VARCHAR(191) NOT NULL,
     `receiptNumber` VARCHAR(30) NOT NULL,
     `paymentId` VARCHAR(191) NOT NULL,
@@ -229,7 +229,7 @@ CREATE TABLE `receipts` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `visits` (
+CREATE TABLE IF NOT EXISTS `visits` (
     `id` VARCHAR(191) NOT NULL,
     `customerId` VARCHAR(191) NOT NULL,
     `loanId` VARCHAR(191) NOT NULL,
@@ -251,7 +251,7 @@ CREATE TABLE `visits` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `routes` (
+CREATE TABLE IF NOT EXISTS `routes` (
     `id` VARCHAR(191) NOT NULL,
     `routeDate` VARCHAR(10) NOT NULL,
     `customerId` VARCHAR(191) NOT NULL,
@@ -272,7 +272,7 @@ CREATE TABLE `routes` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `daily_closings` (
+CREATE TABLE IF NOT EXISTS `daily_closings` (
     `id` VARCHAR(191) NOT NULL,
     `closingDate` VARCHAR(10) NOT NULL,
     `totalDue` DECIMAL(14, 2) NOT NULL,
@@ -300,7 +300,7 @@ CREATE TABLE `daily_closings` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `audit_logs` (
+CREATE TABLE IF NOT EXISTS `audit_logs` (
     `id` VARCHAR(191) NOT NULL,
     `userId` VARCHAR(191) NULL,
     `customerId` VARCHAR(191) NULL,
