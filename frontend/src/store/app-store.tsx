@@ -1577,17 +1577,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           }
           return true;
         }
+        return false;
       } catch (err: any) {
-        console.warn("Backend login failed or server offline, checking local auth:", err?.message);
+        console.error("Authentication failed:", err?.message);
+        throw err;
       }
-
-      // Safe local fallback (if backend database is offline)
-      const ok =
-        (normalized === "admin@aarigocapital.com" ||
-          normalized === "admin@loanflow.demo") &&
-        password === "123456";
-      if (ok) setLoggedIn(true);
-      return ok;
     },
     logout: () => {
       void authApi.logout();

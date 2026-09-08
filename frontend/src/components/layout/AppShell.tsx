@@ -4,7 +4,7 @@ import { AppSidebar } from "./AppSidebar";
 import { AppHeader } from "./AppHeader";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
-import { Lock, Mail, Eye, EyeOff, ShieldCheck, Building2, AlertCircle } from "lucide-react";
+import { Lock, Mail, Eye, EyeOff, Building2, AlertCircle } from "lucide-react";
 import { BrandBanner } from "@/components/ui/brand-logo";
 
 interface AppShellProps {
@@ -167,7 +167,7 @@ export function AppShell({ children }: AppShellProps) {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@aarigocapital.com"
+                    placeholder="Enter your email"
                     disabled={loading}
                     autoComplete="email"
                     className="w-full pl-10 pr-4 h-11 rounded-xl text-sm text-white placeholder-slate-600 outline-none transition-all duration-200 disabled:opacity-50"
@@ -259,26 +259,6 @@ export function AppShell({ children }: AppShellProps) {
                 )}
               </button>
             </form>
-
-            {/* Credentials hint */}
-            <div
-              className="mt-5 p-3.5 rounded-xl text-[11px] space-y-1"
-              style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.07)",
-              }}
-            >
-              <p className="text-slate-400 font-semibold flex items-center gap-1.5 mb-1.5">
-                <ShieldCheck className="h-3 w-3 text-green-500" />
-                Admin Credentials
-              </p>
-              <p className="text-slate-500">
-                Email: <span className="font-mono text-slate-300">admin@aarigocapital.com</span>
-              </p>
-              <p className="text-slate-500">
-                Password: <span className="font-mono text-slate-300">123456</span>
-              </p>
-            </div>
           </div>
         </div>
       </div>

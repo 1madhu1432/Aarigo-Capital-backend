@@ -46,12 +46,6 @@ function LoginPage() {
     }
   };
 
-  const handleFillDemo = () => {
-    setEmail("admin@aarigocapital.com");
-    setPassword("123456");
-    setError(null);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
@@ -76,9 +70,10 @@ function LoginPage() {
                     type="text"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@aarigocapital.com"
+                    placeholder="Enter your email or staff ID"
                     className="pl-9 h-10 text-sm"
                     disabled={loading}
+                    autoComplete="username"
                   />
                 </div>
               </div>
@@ -92,9 +87,10 @@ function LoginPage() {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password"
+                    placeholder="Enter your password"
                     className="pl-9 pr-10 h-10 text-sm"
                     disabled={loading}
+                    autoComplete="current-password"
                   />
                   <button
                     type="button"
@@ -118,13 +114,6 @@ function LoginPage() {
                     Remember session
                   </Label>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleFillDemo}
-                  className="text-xs text-primary font-medium hover:underline cursor-pointer"
-                >
-                  Quick Fill Demo
-                </button>
               </div>
 
               {error && (
@@ -142,25 +131,11 @@ function LoginPage() {
                 {loading ? "Verifying..." : "Sign In to Aarigo Capital"}
               </Button>
             </form>
-
-            <div className="mt-4 p-3 rounded-lg bg-muted/40 border border-border/60 text-[11px] text-muted-foreground flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-foreground">Demo: </span>
-                <code className="font-mono text-foreground">admin@aarigocapital.com</code> / <code className="font-mono text-foreground">123456</code>
-              </div>
-              <button
-                type="button"
-                onClick={handleFillDemo}
-                className="text-[10px] text-primary font-semibold hover:underline cursor-pointer"
-              >
-                Auto-fill
-              </button>
-            </div>
           </CardContent>
         </Card>
 
         <p className="text-center text-[10px] text-muted-foreground">
-          Aarigo Capital — Secure local session. No data leaves your device.
+          Aarigo Capital — Loan Management & Operations System
         </p>
       </div>
     </div>
