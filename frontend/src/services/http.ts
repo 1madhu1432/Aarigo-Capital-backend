@@ -114,6 +114,8 @@ export async function request<T = any>(
 
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('aarigo_auth_token');
+      // Dispatch an event to trigger logout handling in the store
+      window.dispatchEvent(new Event('unauthorized'));
     }
 
     // Handle 204 No Content

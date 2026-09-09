@@ -291,6 +291,40 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const [loggedIn, setLoggedIn] = useState(false);
 
+  // Define logout function to clear auth and reset store
+  const logout = useCallback(() => {
+    // Remove token
+    localStorage.removeItem('aarigo_auth_token');
+    // Clear persisted store data
+    localStorage.removeItem('aarigo-capital-store-v2');
+    // Reset all state slices
+    setCustomers([]);
+    setAccounts([]);
+    setLoans([]);
+    setEmis([]);
+    setPayments([]);
+    setReceipts([]);
+    setVisits([]);
+    setLimitHistory([]);
+    setDocuments([]);
+    setBankDetails([]);
+    setDisbursements([]);
+    setPromiseToPay([]);
+    setEarlyClosures([]);
+    setDailyClosings([]);
+    setCounters(DEFAULT_COUNTERS);
+    setAdmin(defaultAdmin);
+    setSettings(defaultSettings);
+    setLoggedIn(false);
+  }, []);
+
+  // Listen for unauthorized events from http client
+  useEffect(() => {
+    const handler = () => logout();
+    window.addEventListener('unauthorized', handler);
+    return () => window.removeEventListener('unauthorized', handler);
+  }, [logout]);
+
   // Restore authenticated session from backend token if present
   useEffect(() => {
     const rawToken = localStorage.getItem("aarigo_auth_token");
@@ -304,6 +338,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         .getMe()
         .then((user) => {
           if (user) {
+            // Reset store to clear any previous session data
+            setCustomers([]);
+            setAccounts([]);
+            setLoans([]);
+            setEmis([]);
+            setPayments([]);
+            setReceipts([]);
+            setVisits([]);
+            setLimitHistory([]);
+            setDocuments([]);
+            setBankDetails([]);
+            setDisbursements([]);
+            setPromiseToPay([]);
+            setEarlyClosures([]);
+            setDailyClosings([]);
+            setCounters(DEFAULT_COUNTERS);
+            setAdmin(defaultAdmin);
+            setSettings(defaultSettings);
             setLoggedIn(true);
             setAdmin((prev) => ({
               ...prev,
@@ -311,7 +363,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               email: user.email || prev.email,
             }));
           } else {
-            localStorage.removeItem("aarigo_auth_token");
+            localStorage.removeItem('aarigo_auth_token');
             setLoggedIn(false);
           }
         })
