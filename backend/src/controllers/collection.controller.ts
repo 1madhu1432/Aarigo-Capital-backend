@@ -22,6 +22,15 @@ export class CollectionController {
     }
   }
 
+  static async getDailyRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await CollectionService.getDailyRun(req.query.date as string | undefined);
+      return sendSuccess(res, result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async getCollectionById(req: Request, res: Response, next: NextFunction) {
     try {
       const collection = await CollectionService.getCollectionById(req.params.id);

@@ -11,5 +11,6 @@ router.get('/payments', ReportController.getPayments);
 router.get('/collections', ReportController.getCollections);
 router.get('/overdue', ReportController.getOverdue);
 router.get('/daily-collections', ReportController.getDailyCollections);
+router.get('/portfolio', ReportController.getPortfolio);
 
 export default router;

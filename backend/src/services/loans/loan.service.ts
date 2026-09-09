@@ -26,9 +26,14 @@ export class LoanService {
   }
 
   static async createLoan(input: CreateLoanInput, userId?: string) {
-    // 1. Check customer existence
-    const customer = await prisma.customer.findUnique({
-      where: { id: input.customerId },
+    // 1. Check customer existence (supports both UUID id and customerCode)
+    const customer = await prisma.customer.findFirst({
+      where: {
+        OR: [
+          { id: input.customerId },
+          { customerCode: input.customerId },
+        ],
+      },
     });
 
     if (!customer) {
@@ -39,10 +44,15 @@ export class LoanService {
       throw ApiError.badRequest('Cannot create loan for inactive or blocked customer');
     }
 
+    const principalAmount = input.principalAmount ?? (input as any).principal ?? 10000;
+    const interestRate = input.interestRate ?? (input as any).annualRate ?? 18;
+    const loanProductId = input.loanProductId ?? (input as any).productId ?? null;
+    const targetFirstDueDate = input.firstDueDate ?? (input as any).firstEmiDate;
+
     // 2. Validate product if provided
-    if (input.loanProductId) {
+    if (loanProductId) {
       const product = await prisma.loanProduct.findUnique({
-        where: { id: input.loanProductId },
+        where: { id: loanProductId },
       });
       if (!product) {
         throw ApiError.notFound('Loan product not found');
@@ -50,7 +60,7 @@ export class LoanService {
       if (!product.isActive) {
         throw ApiError.badRequest('Selected loan product is inactive');
       }
-      if (input.principalAmount < Number(product.minAmount) || input.principalAmount > Number(product.maxAmount)) {
+      if (principalAmount < Number(product.minAmount) || principalAmount > Number(product.maxAmount)) {
         throw ApiError.badRequest(
           `Principal amount must be between ₹${product.minAmount} and ₹${product.maxAmount} for this product`
         );
@@ -59,37 +69,37 @@ export class LoanService {
 
     // 3. Compute domain schedule
     const scheduleResult = computeLoanSchedule({
-      principal: input.principalAmount,
-      annualRate: input.interestRate,
+      principal: principalAmount,
+      annualRate: interestRate,
       interestType: input.interestType,
       tenure: input.tenure,
       frequency: input.frequency,
       startDate: input.startDate,
-      firstDueDate: input.firstDueDate,
+      firstDueDate: targetFirstDueDate,
     });
 
     const loanNumber = await this.generateLoanNumber();
     const maturityDate = scheduleResult.schedule[scheduleResult.schedule.length - 1]?.dueDate || input.startDate;
-    const firstDueDate = scheduleResult.schedule[0]?.dueDate || input.startDate;
+    const computedFirstDueDate = scheduleResult.schedule[0]?.dueDate || input.startDate;
 
     // 4. Prisma transaction to atomically create Loan and Installments
     const loan = await prisma.$transaction(async (tx) => {
       const createdLoan = await tx.loan.create({
         data: {
           loanNumber,
-          customerId: input.customerId,
-          loanProductId: input.loanProductId,
-          principalAmount: new Prisma.Decimal(input.principalAmount),
-          interestRate: new Prisma.Decimal(input.interestRate),
+          customerId: customer.id,
+          loanProductId,
+          principalAmount: new Prisma.Decimal(principalAmount),
+          interestRate: new Prisma.Decimal(interestRate),
           interestType: input.interestType,
           tenure: input.tenure,
           frequency: input.frequency,
-          processingFee: new Prisma.Decimal(input.processingFee),
+          processingFee: new Prisma.Decimal(input.processingFee || 0),
           totalInterest: new Prisma.Decimal(scheduleResult.totalInterest),
           totalPayable: new Prisma.Decimal(scheduleResult.totalPayable),
           emiAmount: new Prisma.Decimal(scheduleResult.emiAmount),
           startDate: input.startDate,
-          firstDueDate,
+          firstDueDate: computedFirstDueDate,
           maturityDate,
           paidAmount: new Prisma.Decimal(0),
           outstandingAmount: new Prisma.Decimal(scheduleResult.totalPayable),

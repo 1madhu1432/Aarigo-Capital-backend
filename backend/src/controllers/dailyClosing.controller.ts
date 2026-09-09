@@ -22,6 +22,15 @@ export class DailyClosingController {
     }
   }
 
+  static async getTodayClosing(req: Request, res: Response, next: NextFunction) {
+    try {
+      const closing = await DailyClosingService.getTodayClosing();
+      return sendSuccess(res, closing);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async getDailyClosingById(req: Request, res: Response, next: NextFunction) {
     try {
       const closing = await DailyClosingService.getDailyClosingById(req.params.id);

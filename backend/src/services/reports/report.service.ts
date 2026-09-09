@@ -138,4 +138,59 @@ export class ReportService {
       transactions: payments,
     };
   }
+
+  static async getPortfolioReport() {
+    const [
+      totalLoans,
+      activeLoans,
+      closedLoans,
+      overdueLoans,
+      totalCustomers,
+      loans,
+      payments,
+    ] = await Promise.all([
+      prisma.loan.count(),
+      prisma.loan.count({ where: { status: 'ACTIVE' } }),
+      prisma.loan.count({ where: { status: 'CLOSED' } }),
+      prisma.loan.count({ where: { status: 'OVERDUE' } }),
+      prisma.customer.count(),
+      prisma.loan.findMany({
+        select: {
+          principalAmount: true,
+          totalInterest: true,
+          totalPayable: true,
+          paidAmount: true,
+          outstandingAmount: true,
+          status: true,
+        },
+      }),
+      prisma.payment.aggregate({
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    const totalDisbursed = loans.reduce((sum, l) => sum + Number(l.principalAmount || 0), 0);
+    const totalExpected = loans.reduce((sum, l) => sum + Number(l.totalPayable || 0), 0);
+    const totalCollected = Number(payments._sum.amount || 0);
+    const totalOutstanding = loans.reduce((sum, l) => sum + Number(l.outstandingAmount || 0), 0);
+    const recoveryRate = totalExpected > 0 ? Number(((totalCollected / totalExpected) * 100).toFixed(2)) : 100;
+
+    return {
+      portfolioSummary: {
+        totalCustomers,
+        totalLoans,
+        activeLoans,
+        closedLoans,
+        overdueLoans,
+        totalDisbursed,
+        totalExpected,
+        totalCollected,
+        totalOutstanding,
+        recoveryRate,
+        totalPaymentsCount: payments._count.id,
+      },
+      generatedAt: new Date().toISOString(),
+    };
+  }
 }

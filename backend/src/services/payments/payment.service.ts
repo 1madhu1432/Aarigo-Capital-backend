@@ -45,8 +45,13 @@ export class PaymentService {
   }
 
   static async recordPayment(input: CreatePaymentInput, userId?: string) {
-    const loan = await prisma.loan.findUnique({
-      where: { id: input.loanId },
+    const loan = await prisma.loan.findFirst({
+      where: {
+        OR: [
+          { id: input.loanId },
+          { loanNumber: input.loanId },
+        ],
+      },
       include: {
         installments: {
           orderBy: { installmentNumber: 'asc' },

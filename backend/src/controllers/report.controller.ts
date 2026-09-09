@@ -47,4 +47,13 @@ export class ReportController {
       next(err);
     }
   }
+
+  static async getPortfolio(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await ReportService.getPortfolioReport();
+      return sendSuccess(res, result);
+    } catch (err) {
+      next(err);
+    }
+  }
 }

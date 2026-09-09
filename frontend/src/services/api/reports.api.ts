@@ -15,6 +15,9 @@ export const reportsApi = {
 
   getDailyCollectionsReport: (params?: Record<string, any>): Promise<ApiResponse<any>> =>
     http.get<any>('/reports/daily-collections', params),
+
+  getPortfolioReport: (): Promise<ApiResponse<any>> =>
+    http.get<any>('/reports/portfolio'),
 };
 
 export default reportsApi;

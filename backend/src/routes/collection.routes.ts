@@ -9,6 +9,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post('/', validate(createCollectionSchema), CollectionController.recordCollection);
+router.get('/daily-run', CollectionController.getDailyRun);
 router.get('/', validate(collectionQuerySchema), CollectionController.getCollections);
 router.get('/:id', CollectionController.getCollectionById);
 

@@ -3,6 +3,7 @@ import { ApiError } from '../../utils/apiError';
 import { parsePagination, buildPaginationMeta } from '../../utils/pagination';
 import { CreateDailyClosingInput, DailyClosingQueryParams } from '../../validators/dailyClosing.validator';
 import { Prisma } from '@prisma/client';
+import { todayIST } from '../../domain/loan/loanCalculation';
 
 export class DailyClosingService {
   static async performClosing(input: CreateDailyClosingInput, userId?: string) {
@@ -119,7 +120,81 @@ export class DailyClosingService {
     };
   }
 
+  static async getTodayClosing() {
+    const today = todayIST();
+    const existing = await prisma.dailyClosing.findUnique({
+      where: { closingDate: today },
+      include: {
+        closedBy: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    // Live day preview if closing has not run yet
+    const payments = await prisma.payment.findMany({
+      where: { paymentDate: today },
+    });
+
+    let cashAmount = 0;
+    let cashCount = 0;
+    let upiAmount = 0;
+    let upiCount = 0;
+    let bankAmount = 0;
+    let bankCount = 0;
+
+    for (const p of payments) {
+      const amt = Number(p.amount);
+      if (p.paymentMethod === 'CASH') {
+        cashAmount += amt;
+        cashCount += 1;
+      } else if (p.paymentMethod === 'UPI') {
+        upiAmount += amt;
+        upiCount += 1;
+      } else if (p.paymentMethod === 'BANK_TRANSFER') {
+        bankAmount += amt;
+        bankCount += 1;
+      }
+    }
+
+    const totalCollected = cashAmount + upiAmount + bankAmount;
+    const dueInstallments = await prisma.installment.findMany({
+      where: { dueDate: today },
+    });
+    const totalDue = dueInstallments.reduce((sum, i) => sum + Number(i.totalAmount), 0);
+    const shortfall = Math.max(0, totalDue - totalCollected);
+    const collectionRate = totalDue > 0 ? (totalCollected / totalDue) * 100 : 100;
+    const visitsCount = await prisma.visit.count({
+      where: { visitDate: today },
+    });
+
+    return {
+      id: 'today',
+      closingDate: today,
+      totalDue,
+      totalCollected,
+      shortfall,
+      collectionRate: Number(collectionRate.toFixed(2)),
+      cashAmount,
+      cashCount,
+      upiAmount,
+      upiCount,
+      bankAmount,
+      bankCount,
+      transactionsCount: payments.length,
+      visitsCount,
+      status: 'OPEN',
+      isLivePreview: true,
+    };
+  }
+
   static async getDailyClosingById(id: string) {
+    if (id === 'today') {
+      return this.getTodayClosing();
+    }
+
     const closing = await prisma.dailyClosing.findUnique({
       where: { id },
       include: {

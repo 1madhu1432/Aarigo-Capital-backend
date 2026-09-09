@@ -86,4 +86,48 @@ export class CollectionService {
 
     return collection;
   }
+
+  static async getDailyRun(date?: string) {
+    const targetDate = date || new Date().toISOString().slice(0, 10);
+
+    const dueInstallments = await prisma.installment.findMany({
+      where: {
+        dueDate: { lte: targetDate },
+        status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
+        loan: {
+          status: 'ACTIVE',
+        },
+      },
+      include: {
+        loan: {
+          include: {
+            customer: {
+              select: {
+                id: true,
+                customerCode: true,
+                fullName: true,
+                mobile: true,
+                address: true,
+                city: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [
+        { dueDate: 'asc' },
+        { installmentNumber: 'asc' },
+      ],
+    });
+
+    const totalDue = dueInstallments.reduce((acc, inst) => acc + Number(inst.outstandingAmount), 0);
+    const count = dueInstallments.length;
+
+    return {
+      date: targetDate,
+      totalDue,
+      count,
+      items: dueInstallments,
+    };
+  }
 }

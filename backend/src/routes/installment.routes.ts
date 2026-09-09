@@ -6,6 +6,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
+router.get('/', InstallmentController.getInstallments);
 router.get('/:id', InstallmentController.getInstallmentById);
 
 export default router;

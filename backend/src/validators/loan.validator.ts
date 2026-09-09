@@ -4,14 +4,26 @@ export const createLoanSchema = z.object({
   body: z.object({
     customerId: z.string().min(1, 'Customer ID is required'),
     loanProductId: z.string().optional().nullable(),
-    principalAmount: z.number().positive('Principal amount must be positive'),
-    interestRate: z.number().positive('Interest rate must be positive'),
-    interestType: z.enum(['FLAT', 'REDUCING']),
+    productId: z.string().optional().nullable(),
+    principalAmount: z.number().positive().optional(),
+    principal: z.number().positive().optional(),
+    interestRate: z.number().positive().optional(),
+    annualRate: z.number().positive().optional(),
+    interestType: z.preprocess((val) => {
+      const s = String(val || '').toUpperCase();
+      return s.includes('REDUC') ? 'REDUCING' : 'FLAT';
+    }, z.enum(['FLAT', 'REDUCING'])).default('FLAT'),
+    interestMethod: z.string().optional().nullable(),
     tenure: z.number().int().positive('Tenure must be a positive integer'),
-    frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
-    processingFee: z.number().nonnegative('Processing fee cannot be negative').default(0),
+    frequency: z.preprocess((val) => {
+      const s = String(val || 'MONTHLY').toUpperCase();
+      if (s === 'DAILY' || s === 'WEEKLY' || s === 'MONTHLY') return s;
+      return 'MONTHLY';
+    }, z.enum(['DAILY', 'WEEKLY', 'MONTHLY'])).default('MONTHLY'),
+    processingFee: z.number().nonnegative().optional().default(0),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD'),
     firstDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'First due date must be YYYY-MM-DD').optional(),
+    firstEmiDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'First due date must be YYYY-MM-DD').optional(),
     purpose: z.string().optional().nullable(),
     disbursementMethod: z.string().optional().nullable(),
     bankTransactionId: z.string().optional().nullable(),

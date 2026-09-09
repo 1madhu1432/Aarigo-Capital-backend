@@ -23,6 +23,7 @@ router.use('/loans', loanRoutes);
 router.use('/installments', installmentRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/collections', collectionRoutes);
+router.use('/collection', collectionRoutes);
 router.use('/receipts', receiptRoutes);
 router.use('/visits', visitRoutes);
 router.use('/routes', routeRoutes);

@@ -12,6 +12,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post('/', validate(createDailyClosingSchema), DailyClosingController.performClosing);
+router.get('/today', DailyClosingController.getTodayClosing);
 router.get('/', validate(dailyClosingQuerySchema), DailyClosingController.getDailyClosings);
 router.get('/:id', DailyClosingController.getDailyClosingById);
 
