@@ -22,8 +22,18 @@ export class AuthController {
     }
   }
 
-  static async logout(_req: Request, res: Response, next: NextFunction) {
+  static async logout(req: Request, res: Response, next: NextFunction) {
     try {
+      // Extract token from Authorization header and add to blacklist
+      const authHeader = req.headers.authorization;
+      if (authHeader) {
+        const token = authHeader.split(' ')[1]; // Bearer <token>
+        if (token) {
+          // Add token to in‑memory blacklist
+          const { addTokenToBlacklist } = await import('../utils/tokenBlacklist');
+          addTokenToBlacklist(token);
+        }
+      }
       return sendSuccess(res, null, 'Logged out successfully');
     } catch (err) {
       next(err);

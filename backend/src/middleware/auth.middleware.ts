@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken, extractTokenFromHeader } from '../lib/jwt';
 import { ApiError } from '../utils/apiError';
 import { prisma } from '../lib/prisma';
+import { isTokenBlacklisted } from '../utils/tokenBlacklist';
 
 export interface AuthenticatedUser {
   id: string;
@@ -31,6 +32,12 @@ export async function authenticate(
     const token = extractTokenFromHeader(req.headers.authorization);
     if (!token) {
       throw ApiError.unauthorized('Authentication token is required');
+    }
+
+    // Check if token is blacklisted using in-memory store
+    import { isTokenBlacklisted } from '../utils/tokenBlacklist';
+    if (isTokenBlacklisted(token)) {
+      throw ApiError.unauthorized('Token has been invalidated');
     }
 
     const payload = verifyToken(token);
