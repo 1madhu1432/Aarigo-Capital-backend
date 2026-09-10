@@ -26,15 +26,15 @@ export class LoanService {
   }
 
   static async createLoan(input: CreateLoanInput, userId?: string) {
-    // 1. Check customer existence (supports both UUID id and customerCode)
-    const customer = await prisma.customer.findFirst({
-      where: {
-        OR: [
-          { id: input.customerId },
-          { customerCode: input.customerId },
-        ],
-      },
+    // 1. Check customer existence by id or customerCode
+    let customer = await prisma.customer.findUnique({
+      where: { id: input.customerId },
     });
+    if (!customer) {
+      customer = await prisma.customer.findUnique({
+        where: { customerCode: input.customerId },
+      });
+    }
 
     if (!customer) {
       throw ApiError.notFound('Customer not found');
@@ -44,15 +44,10 @@ export class LoanService {
       throw ApiError.badRequest('Cannot create loan for inactive or blocked customer');
     }
 
-    const principalAmount = input.principalAmount ?? (input as any).principal ?? 10000;
-    const interestRate = input.interestRate ?? (input as any).annualRate ?? 18;
-    const loanProductId = input.loanProductId ?? (input as any).productId ?? null;
-    const targetFirstDueDate = input.firstDueDate ?? (input as any).firstEmiDate;
-
     // 2. Validate product if provided
-    if (loanProductId) {
+    if (input.loanProductId) {
       const product = await prisma.loanProduct.findUnique({
-        where: { id: loanProductId },
+        where: { id: input.loanProductId },
       });
       if (!product) {
         throw ApiError.notFound('Loan product not found');
@@ -60,7 +55,7 @@ export class LoanService {
       if (!product.isActive) {
         throw ApiError.badRequest('Selected loan product is inactive');
       }
-      if (principalAmount < Number(product.minAmount) || principalAmount > Number(product.maxAmount)) {
+      if (input.principalAmount < Number(product.minAmount) || input.principalAmount > Number(product.maxAmount)) {
         throw ApiError.badRequest(
           `Principal amount must be between ₹${product.minAmount} and ₹${product.maxAmount} for this product`
         );
@@ -69,18 +64,18 @@ export class LoanService {
 
     // 3. Compute domain schedule
     const scheduleResult = computeLoanSchedule({
-      principal: principalAmount,
-      annualRate: interestRate,
+      principal: input.principalAmount,
+      annualRate: input.interestRate,
       interestType: input.interestType,
       tenure: input.tenure,
       frequency: input.frequency,
       startDate: input.startDate,
-      firstDueDate: targetFirstDueDate,
+      firstDueDate: input.firstDueDate,
     });
 
     const loanNumber = await this.generateLoanNumber();
     const maturityDate = scheduleResult.schedule[scheduleResult.schedule.length - 1]?.dueDate || input.startDate;
-    const computedFirstDueDate = scheduleResult.schedule[0]?.dueDate || input.startDate;
+    const firstDueDate = scheduleResult.schedule[0]?.dueDate || input.startDate;
 
     // 4. Prisma transaction to atomically create Loan and Installments
     const loan = await prisma.$transaction(async (tx) => {
@@ -88,18 +83,18 @@ export class LoanService {
         data: {
           loanNumber,
           customerId: customer.id,
-          loanProductId,
-          principalAmount: new Prisma.Decimal(principalAmount),
-          interestRate: new Prisma.Decimal(interestRate),
+          loanProductId: input.loanProductId,
+          principalAmount: new Prisma.Decimal(input.principalAmount),
+          interestRate: new Prisma.Decimal(input.interestRate),
           interestType: input.interestType,
           tenure: input.tenure,
           frequency: input.frequency,
-          processingFee: new Prisma.Decimal(input.processingFee || 0),
+          processingFee: new Prisma.Decimal(input.processingFee),
           totalInterest: new Prisma.Decimal(scheduleResult.totalInterest),
           totalPayable: new Prisma.Decimal(scheduleResult.totalPayable),
           emiAmount: new Prisma.Decimal(scheduleResult.emiAmount),
           startDate: input.startDate,
-          firstDueDate: computedFirstDueDate,
+          firstDueDate,
           maturityDate,
           paidAmount: new Prisma.Decimal(0),
           outstandingAmount: new Prisma.Decimal(scheduleResult.totalPayable),
@@ -132,7 +127,7 @@ export class LoanService {
       await tx.auditLog.create({
         data: {
           userId,
-          customerId: customer.id,
+          customerId: input.customerId,
           entityType: 'Loan',
           entityId: createdLoan.id,
           action: 'CREATE',
@@ -168,10 +163,12 @@ export class LoanService {
       where.frequency = params.frequency;
     }
 
-    if (params.startDate || params.endDate) {
-      where.startDate = {};
-      if (params.startDate) (where.startDate as any).gte = params.startDate;
-      if (params.endDate) (where.startDate as any).lte = params.endDate;
+    if (params.startDate) {
+      where.startDate = { gte: params.startDate };
+    }
+
+    if (params.endDate) {
+      where.startDate = { lte: params.endDate };
     }
 
     if (params.search) {
@@ -206,9 +203,6 @@ export class LoanService {
               name: true,
             },
           },
-          installments: {
-            orderBy: { installmentNumber: 'asc' },
-          },
           _count: {
             select: {
               installments: true,
@@ -226,7 +220,7 @@ export class LoanService {
   }
 
   static async getLoanById(id: string) {
-    const loan = await prisma.loan.findUnique({
+    let loan = await prisma.loan.findUnique({
       where: { id },
       include: {
         customer: true,
@@ -239,6 +233,22 @@ export class LoanService {
         },
       },
     });
+
+    if (!loan) {
+      loan = await prisma.loan.findUnique({
+        where: { loanNumber: id },
+        include: {
+          customer: true,
+          loanProduct: true,
+          installments: {
+            orderBy: { installmentNumber: 'asc' },
+          },
+          payments: {
+            orderBy: { paymentDate: 'desc' },
+          },
+        },
+      });
+    }
 
     if (!loan) {
       throw ApiError.notFound('Loan not found');
@@ -287,13 +297,16 @@ export class LoanService {
   }
 
   static async updateLoan(id: string, input: UpdateLoanInput, userId?: string) {
-    const loan = await prisma.loan.findUnique({ where: { id } });
+    let loan = await prisma.loan.findUnique({ where: { id } });
+    if (!loan) {
+      loan = await prisma.loan.findUnique({ where: { loanNumber: id } });
+    }
     if (!loan) {
       throw ApiError.notFound('Loan not found');
     }
 
     const updated = await prisma.loan.update({
-      where: { id },
+      where: { id: loan.id },
       data: input,
     });
 

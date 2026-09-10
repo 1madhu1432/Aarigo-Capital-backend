@@ -26,10 +26,15 @@ export class LoanService {
   }
 
   static async createLoan(input: CreateLoanInput, userId?: string) {
-    // 1. Check customer existence
-    const customer = await prisma.customer.findUnique({
+    // 1. Check customer existence by id or customerCode
+    let customer = await prisma.customer.findUnique({
       where: { id: input.customerId },
     });
+    if (!customer) {
+      customer = await prisma.customer.findUnique({
+        where: { customerCode: input.customerId },
+      });
+    }
 
     if (!customer) {
       throw ApiError.notFound('Customer not found');
@@ -77,7 +82,7 @@ export class LoanService {
       const createdLoan = await tx.loan.create({
         data: {
           loanNumber,
-          customerId: input.customerId,
+          customerId: customer.id,
           loanProductId: input.loanProductId,
           principalAmount: new Prisma.Decimal(input.principalAmount),
           interestRate: new Prisma.Decimal(input.interestRate),
@@ -215,7 +220,7 @@ export class LoanService {
   }
 
   static async getLoanById(id: string) {
-    const loan = await prisma.loan.findUnique({
+    let loan = await prisma.loan.findUnique({
       where: { id },
       include: {
         customer: true,
@@ -228,6 +233,22 @@ export class LoanService {
         },
       },
     });
+
+    if (!loan) {
+      loan = await prisma.loan.findUnique({
+        where: { loanNumber: id },
+        include: {
+          customer: true,
+          loanProduct: true,
+          installments: {
+            orderBy: { installmentNumber: 'asc' },
+          },
+          payments: {
+            orderBy: { paymentDate: 'desc' },
+          },
+        },
+      });
+    }
 
     if (!loan) {
       throw ApiError.notFound('Loan not found');
@@ -276,13 +297,16 @@ export class LoanService {
   }
 
   static async updateLoan(id: string, input: UpdateLoanInput, userId?: string) {
-    const loan = await prisma.loan.findUnique({ where: { id } });
+    let loan = await prisma.loan.findUnique({ where: { id } });
+    if (!loan) {
+      loan = await prisma.loan.findUnique({ where: { loanNumber: id } });
+    }
     if (!loan) {
       throw ApiError.notFound('Loan not found');
     }
 
     const updated = await prisma.loan.update({
-      where: { id },
+      where: { id: loan.id },
       data: input,
     });
 

@@ -127,7 +127,7 @@ export class CustomerService {
   }
 
   static async getCustomerById(id: string) {
-    const customer = await prisma.customer.findUnique({
+    let customer = await prisma.customer.findUnique({
       where: { id },
       include: {
         loans: {
@@ -147,6 +147,27 @@ export class CustomerService {
     });
 
     if (!customer) {
+      customer = await prisma.customer.findUnique({
+        where: { customerCode: id },
+        include: {
+          loans: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              loanProduct: true,
+            },
+          },
+          documents: {
+            orderBy: { uploadedAt: 'desc' },
+          },
+          visits: {
+            orderBy: { visitDate: 'desc' },
+            take: 10,
+          },
+        },
+      });
+    }
+
+    if (!customer) {
       throw ApiError.notFound('Customer not found');
     }
 
@@ -154,7 +175,10 @@ export class CustomerService {
   }
 
   static async updateCustomer(id: string, input: UpdateCustomerInput, userId?: string) {
-    const existing = await prisma.customer.findUnique({ where: { id } });
+    let existing = await prisma.customer.findUnique({ where: { id } });
+    if (!existing) {
+      existing = await prisma.customer.findUnique({ where: { customerCode: id } });
+    }
     if (!existing) {
       throw ApiError.notFound('Customer not found');
     }
@@ -194,7 +218,7 @@ export class CustomerService {
   }
 
   static async deleteCustomer(id: string, userId?: string) {
-    const customer = await prisma.customer.findUnique({
+    let customer = await prisma.customer.findUnique({
       where: { id },
       include: {
         loans: {
@@ -206,6 +230,19 @@ export class CustomerService {
     });
 
     if (!customer) {
+      customer = await prisma.customer.findUnique({
+        where: { customerCode: id },
+        include: {
+          loans: {
+            where: {
+              status: { in: ['ACTIVE', 'OVERDUE'] },
+            },
+          },
+        },
+      });
+    }
+
+    if (!customer) {
       throw ApiError.notFound('Customer not found');
     }
 
@@ -215,7 +252,7 @@ export class CustomerService {
 
     // Soft delete by marking INACTIVE
     const updated = await prisma.customer.update({
-      where: { id },
+      where: { id: customer.id },
       data: { status: 'INACTIVE' },
     });
 

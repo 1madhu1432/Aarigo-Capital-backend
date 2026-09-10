@@ -45,19 +45,25 @@ export class PaymentService {
   }
 
   static async recordPayment(input: CreatePaymentInput, userId?: string) {
-    const loan = await prisma.loan.findFirst({
-      where: {
-        OR: [
-          { id: input.loanId },
-          { loanNumber: input.loanId },
-        ],
-      },
+    let loan = await prisma.loan.findUnique({
+      where: { id: input.loanId },
       include: {
         installments: {
           orderBy: { installmentNumber: 'asc' },
         },
       },
     });
+
+    if (!loan) {
+      loan = await prisma.loan.findUnique({
+        where: { loanNumber: input.loanId },
+        include: {
+          installments: {
+            orderBy: { installmentNumber: 'asc' },
+          },
+        },
+      });
+    }
 
     if (!loan) {
       throw ApiError.notFound('Loan not found');
@@ -236,10 +242,12 @@ export class PaymentService {
       where.paymentMethod = params.paymentMethod;
     }
 
-    if (params.startDate || params.endDate) {
-      where.paymentDate = {};
-      if (params.startDate) where.paymentDate.gte = params.startDate;
-      if (params.endDate) where.paymentDate.lte = params.endDate;
+    if (params.startDate) {
+      where.paymentDate = { gte: params.startDate };
+    }
+
+    if (params.endDate) {
+      where.paymentDate = { lte: params.endDate };
     }
 
     if (params.search) {
@@ -286,7 +294,7 @@ export class PaymentService {
   }
 
   static async getPaymentById(id: string) {
-    const payment = await prisma.payment.findUnique({
+    let payment = await prisma.payment.findUnique({
       where: { id },
       include: {
         customer: true,
@@ -297,6 +305,20 @@ export class PaymentService {
         },
       },
     });
+
+    if (!payment) {
+      payment = await prisma.payment.findUnique({
+        where: { paymentNumber: id },
+        include: {
+          customer: true,
+          loan: true,
+          receipt: true,
+          createdBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+    }
 
     if (!payment) {
       throw ApiError.notFound('Payment not found');

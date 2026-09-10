@@ -53,8 +53,15 @@ export class CustomerController {
 
   static async getCustomerLoans(req: Request, res: Response, next: NextFunction) {
     try {
+      let cust = await prisma.customer.findUnique({ where: { id: req.params.id } });
+      if (!cust) {
+        cust = await prisma.customer.findUnique({ where: { customerCode: req.params.id } });
+      }
+      if (!cust) {
+        return sendSuccess(res, []);
+      }
       const loans = await prisma.loan.findMany({
-        where: { customerId: req.params.id },
+        where: { customerId: cust.id },
         orderBy: { createdAt: 'desc' },
         include: { loanProduct: true },
       });
@@ -66,7 +73,12 @@ export class CustomerController {
 
   static async getCustomerDocuments(req: Request, res: Response, next: NextFunction) {
     try {
-      const docs = await CustomerService.getDocuments(req.params.id);
+      let cust = await prisma.customer.findUnique({ where: { id: req.params.id } });
+      if (!cust) {
+        cust = await prisma.customer.findUnique({ where: { customerCode: req.params.id } });
+      }
+      const customerId = cust ? cust.id : req.params.id;
+      const docs = await CustomerService.getDocuments(customerId);
       return sendSuccess(res, docs);
     } catch (err) {
       next(err);
