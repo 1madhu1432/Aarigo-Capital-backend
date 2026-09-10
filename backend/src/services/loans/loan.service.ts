@@ -132,7 +132,7 @@ export class LoanService {
       await tx.auditLog.create({
         data: {
           userId,
-          customerId: input.customerId,
+          customerId: customer.id,
           entityType: 'Loan',
           entityId: createdLoan.id,
           action: 'CREATE',
@@ -168,12 +168,10 @@ export class LoanService {
       where.frequency = params.frequency;
     }
 
-    if (params.startDate) {
-      where.startDate = { gte: params.startDate };
-    }
-
-    if (params.endDate) {
-      where.startDate = { lte: params.endDate };
+    if (params.startDate || params.endDate) {
+      where.startDate = {};
+      if (params.startDate) (where.startDate as any).gte = params.startDate;
+      if (params.endDate) (where.startDate as any).lte = params.endDate;
     }
 
     if (params.search) {
@@ -207,6 +205,9 @@ export class LoanService {
               id: true,
               name: true,
             },
+          },
+          installments: {
+            orderBy: { installmentNumber: 'asc' },
           },
           _count: {
             select: {

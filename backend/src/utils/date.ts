@@ -5,11 +5,19 @@
  */
 
 export function todayIST(): string {
+  // Use Intl.DateTimeFormat so the correct IST date is returned
+  // regardless of whether the server's OS timezone is already IST or UTC.
   const now = new Date();
-  // Offset to IST
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istDate = new Date(now.getTime() + istOffset);
-  return istDate.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const y = parts.find((p) => p.type === 'year')?.value ?? '';
+  const m = parts.find((p) => p.type === 'month')?.value ?? '';
+  const d = parts.find((p) => p.type === 'day')?.value ?? '';
+  return `${y}-${m}-${d}`;
 }
 
 export function toISODate(date: Date): string {

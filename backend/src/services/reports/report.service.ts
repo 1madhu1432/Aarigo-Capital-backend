@@ -7,8 +7,11 @@ export class ReportService {
     const { skip, take, page, limit } = parsePagination(params);
     const where: any = {};
     if (params.status) where.status = params.status;
-    if (params.startDate) where.startDate = { gte: params.startDate };
-    if (params.endDate) where.startDate = { lte: params.endDate };
+    if (params.startDate || params.endDate) {
+      where.startDate = {};
+      if (params.startDate) where.startDate.gte = params.startDate;
+      if (params.endDate) where.startDate.lte = params.endDate;
+    }
 
     const [total, items] = await Promise.all([
       prisma.loan.count({ where }),
@@ -31,8 +34,11 @@ export class ReportService {
     const { skip, take, page, limit } = parsePagination(params);
     const where: any = {};
     if (params.paymentMethod) where.paymentMethod = params.paymentMethod;
-    if (params.startDate) where.paymentDate = { gte: params.startDate };
-    if (params.endDate) where.paymentDate = { lte: params.endDate };
+    if (params.startDate || params.endDate) {
+      where.paymentDate = {};
+      if (params.startDate) where.paymentDate.gte = params.startDate;
+      if (params.endDate) where.paymentDate.lte = params.endDate;
+    }
 
     const [total, items] = await Promise.all([
       prisma.payment.count({ where }),
@@ -54,8 +60,11 @@ export class ReportService {
   static async getCollectionReport(params: { startDate?: string; endDate?: string; page?: number; limit?: number }) {
     const { skip, take, page, limit } = parsePagination(params);
     const where: any = {};
-    if (params.startDate) where.collectionDate = { gte: params.startDate };
-    if (params.endDate) where.collectionDate = { lte: params.endDate };
+    if (params.startDate || params.endDate) {
+      where.collectionDate = {};
+      if (params.startDate) where.collectionDate.gte = params.startDate;
+      if (params.endDate) where.collectionDate.lte = params.endDate;
+    }
 
     const [total, items] = await Promise.all([
       prisma.collection.count({ where }),

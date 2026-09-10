@@ -35,7 +35,6 @@ export async function authenticate(
     }
 
     // Check if token is blacklisted using in-memory store
-    import { isTokenBlacklisted } from '../utils/tokenBlacklist';
     if (isTokenBlacklisted(token)) {
       throw ApiError.unauthorized('Token has been invalidated');
     }

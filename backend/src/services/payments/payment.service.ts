@@ -236,12 +236,10 @@ export class PaymentService {
       where.paymentMethod = params.paymentMethod;
     }
 
-    if (params.startDate) {
-      where.paymentDate = { gte: params.startDate };
-    }
-
-    if (params.endDate) {
-      where.paymentDate = { lte: params.endDate };
+    if (params.startDate || params.endDate) {
+      where.paymentDate = {};
+      if (params.startDate) where.paymentDate.gte = params.startDate;
+      if (params.endDate) where.paymentDate.lte = params.endDate;
     }
 
     if (params.search) {
