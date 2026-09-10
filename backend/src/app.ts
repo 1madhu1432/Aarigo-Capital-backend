@@ -23,9 +23,34 @@ export function createApp(): Application {
   );
 
   // CORS configuration
+  const configuredOrigins = (env.CORS_ORIGIN || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  // Guarantee production Vercel origin is always permitted
+  if (!configuredOrigins.includes('https://aarigo-capital-front-end.vercel.app')) {
+    configuredOrigins.push('https://aarigo-capital-front-end.vercel.app');
+  }
+
   app.use(
     cors({
-      origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(','),
+      origin: (requestOrigin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, server-to-server)
+        if (!requestOrigin) return callback(null, true);
+        if (
+          env.CORS_ORIGIN === '*' ||
+          configuredOrigins.includes('*') ||
+          configuredOrigins.includes(requestOrigin)
+        ) {
+          return callback(null, true);
+        }
+        // Allow any Vercel preview branch deployment for this frontend project
+        if (/^https:\/\/aarigo-capital-front-end.*\.vercel\.app$/.test(requestOrigin)) {
+          return callback(null, true);
+        }
+        callback(null, false);
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],

@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load .env from backend root
+// Load .env from current directory and relative backend root
+dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 function required(key: string): string {
@@ -35,7 +36,10 @@ export const env = {
   JWT_EXPIRES_IN: optional('JWT_EXPIRES_IN', '8h'),
   JWT_REFRESH_EXPIRES_IN: optional('JWT_REFRESH_EXPIRES_IN', '7d'),
 
-  CORS_ORIGIN: optional('CORS_ORIGIN', 'http://localhost:5173'),
+  CORS_ORIGIN: optional(
+    'CORS_ORIGIN',
+    'https://aarigo-capital-front-end.vercel.app,http://localhost:5173,http://localhost:8080,http://localhost:8082'
+  ),
 
   UPLOAD_DIR: optional('UPLOAD_DIR', './uploads'),
   MAX_FILE_SIZE_MB: optionalNumber('MAX_FILE_SIZE_MB', 10),
