@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Aarigo Capital Loan Management & EMI Collection System — Workspace Orchestrator",
   "scripts": {
+    "build": "npm --prefix frontend install && npm run build --prefix frontend",
+    "vercel-build": "npm --prefix frontend install && npm run build --prefix frontend",
+    "dev": "npm run dev --prefix frontend",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:backend": "npm run dev --prefix backend",
     "build:frontend": "npm run build --prefix frontend",
